@@ -180,11 +180,41 @@ finder (which needs that same value data) is built.
   sitting on another manager's bench (a buy-low trade target) is now
   distinguishable from one actually available on waivers.
 
+## Step 6 — Trade Finder (built)
+
+Uses FantasyCalc dynasty values -- a free, public, unauthenticated API
+(no key needed) confirmed live during development. Each player entry
+includes `sleeperId` directly, so no ID crosswalk is needed for this
+source (unlike the nflverse-based data elsewhere in the app).
+
+- `data/fantasycalc.py` — `get_dynasty_values()` pulls current dynasty
+  trade values. `infer_fantasycalc_params()` derives the required query
+  params (numQbs/numTeams/ppr) from each league's REAL Sleeper settings
+  rather than hardcoding them -- e.g. Sensitivity Training correctly comes
+  back as 1QB/10-team/.5PPR.
+  **Caveat:** this sandbox's network is locked to package registries, so
+  the live HTTP call itself couldn't be tested end-to-end here -- verified
+  the endpoint works via a direct fetch during development, and the
+  parsing logic is tested against a saved real response
+  (`data/fixtures/fantasycalc_sample.json`), but the actual `requests.get`
+  call needs confirming once running locally with normal internet access.
+- `engine/trades.py` — computes each team's total dynasty value from real
+  rosters, then searches 1-for-1 and 2-for-2 (configurable) combinations
+  between your team and a chosen opponent, keeping only trades within a
+  fairness tolerance or tilted your way up to a configurable max. Ranked
+  closest-to-even first (most likely to be accepted), not most lopsided.
+- `pages/6_Trade_Finder.py` — pick an opponent, adjust package size and
+  fairness sliders, see suggested trades.
+
+**Known limitations:** pure value math -- doesn't know positional needs,
+roster construction limits, a manager's contend/rebuild timeline, or
+whether a proposed player is actually droppable/needed. A real judgment
+layer (cross-referencing roster construction and team needs) is a natural
+future enhancement, as is combining this with the breakout detector to
+flag buy-low targets whose value hasn't caught up to their role yet.
+
 ## Next steps (not built yet)
 
-- Trade finder using dynasty value data (FantasyCalc/KTC) -- would also
-  let the breakout detector cross-reference against actual market value
-  instead of just draft capital
 - Scheduled data pulls (GitHub Action -> committed parquet/CSV) for
   slow-changing data: league settings, nflverse stats, dynasty values as an
   append-only time series

@@ -1,0 +1,8 @@
+[
+{"player":{"id":9821,"name":"Jahmyr Gibbs","sleeperId":"9221","position":"RB","maybeTeam":"DET","maybeAge":24.4},"value":10739,"overallRank":1,"positionRank":1,"trend30Day":801},
+{"player":{"id":9833,"name":"Bijan Robinson","sleeperId":"9509","position":"RB","maybeTeam":"ATL","maybeAge":24.6},"value":10181,"overallRank":2,"positionRank":2,"trend30Day":-227},
+{"player":{"id":9822,"name":"Puka Nacua","sleeperId":"9493","position":"WR","maybeTeam":"LAR","maybeAge":25.3},"value":8778,"overallRank":6,"positionRank":3,"trend30Day":-436},
+{"player":{"id":4576,"name":"Breece Hall","sleeperId":"8155","position":"RB","maybeTeam":"NYJ","maybeAge":25.2},"value":4131,"overallRank":33,"positionRank":17,"trend30Day":-215},
+{"player":{"id":3544,"name":"Kyler Murray","sleeperId":"5849","position":"QB","maybeTeam":"MIN","maybeAge":29.1},"value":592,"overallRank":122,"positionRank":19,"trend30Day":-27},
+{"player":{"id":880,"name":"Patrick Mahomes","sleeperId":"4046","position":"QB","maybeTeam":"KC","maybeAge":31.0},"value":1546,"overallRank":78,"positionRank":11,"trend30Day":-313}
+]
