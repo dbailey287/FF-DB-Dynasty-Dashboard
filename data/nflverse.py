@@ -1,0 +1,96 @@
+"""
+Wrapper around nflreadpy (the actively-maintained nflverse Python client).
+
+NOTE: we deliberately use nflreadpy, not the older `nfl_data_py` package.
+nfl_data_py pins pandas<2.0, which has no prebuilt wheels for Python 3.13+
+and fails to build from source in most environments. nflreadpy is the
+nflverse team's own successor, has no such pin, and returns Polars
+DataFrames (converted to pandas at the edges here so the rest of the app
+can stay pandas-only for simplicity).
+
+The other reason we use nflreadpy specifically: load_ff_playerids() returns
+a crosswalk table with a `sleeper_id` column, which is the only clean way
+to join Sleeper roster data to nflverse stats (they use totally different
+ID schemes -- Sleeper's own IDs vs. nflverse's gsis_id).
+"""
+
+import os
+
+import nflreadpy as nfl
+import pandas as pd
+
+from config import CACHE_DIR
+
+WEEKLY_STATS_CACHE_PATH = f"{CACHE_DIR}/weekly_stats_{{season}}.parquet"
+PLAYER_ID_MAP_CACHE_PATH = f"{CACHE_DIR}/player_id_map.parquet"
+
+
+def get_weekly_stats(season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Weekly player-level stats for a season: passing/rushing/receiving
+    volume+efficiency, plus IDP tackling/pass-rush/coverage stats, plus
+    Sleeper/nflverse's own fantasy_points and fantasy_points_ppr (we won't
+    use those directly since we recompute points from each league's own
+    scoring_settings, but they're handy for sanity-checking).
+
+    Cached locally as parquet since this covers a whole season and only
+    changes after games are played (weekly refresh is plenty in-season).
+
+    Raises FileNotFoundError with a clear message if nflverse has no data
+    published for this season yet (e.g. requesting the upcoming season
+    before Week 1 has been played).
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = WEEKLY_STATS_CACHE_PATH.format(season=season)
+
+    if not force_refresh and os.path.exists(cache_path):
+        return pd.read_parquet(cache_path)
+
+    try:
+        stats = nfl.load_player_stats(seasons=[season]).to_pandas()
+    except Exception as e:
+        raise FileNotFoundError(
+            f"nflverse has no weekly stats published for {season} yet "
+            f"(likely because that season hasn't started or completed any "
+            f"games). Try an earlier season. Original error: {e}"
+        ) from e
+
+    stats.to_parquet(cache_path, index=False)
+    return stats
+
+
+def get_player_id_map(force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Crosswalk table joining sleeper_id <-> gsis_id (nflverse's player_id)
+    <-> name/position/team, plus draft capital (draft_year/round/pick) which
+    is useful later for the breakout detector (production vs. draft capital).
+
+    This changes slowly (new players added weekly at most) -- cache daily.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+    if not force_refresh and os.path.exists(PLAYER_ID_MAP_CACHE_PATH):
+        return pd.read_parquet(PLAYER_ID_MAP_CACHE_PATH)
+
+    ids = nfl.load_ff_playerids().to_pandas()
+    ids.to_parquet(PLAYER_ID_MAP_CACHE_PATH, index=False)
+    return ids
+
+
+def attach_sleeper_ids(weekly_stats: pd.DataFrame, id_map: pd.DataFrame) -> pd.DataFrame:
+    """
+    Joins nflverse weekly stats (keyed on player_id == gsis_id) to Sleeper
+    IDs via the crosswalk, so the rest of the app can look players up by
+    Sleeper's own ID (what rosters/free-agents use).
+    """
+    slim_map = id_map[["gsis_id", "sleeper_id", "name", "position", "team"]].dropna(
+        subset=["gsis_id"]
+    )
+    merged = weekly_stats.merge(
+        slim_map,
+        left_on="player_id",
+        right_on="gsis_id",
+        how="left",
+        suffixes=("", "_idmap"),
+    )
+    return merged

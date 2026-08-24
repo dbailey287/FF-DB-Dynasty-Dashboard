@@ -27,11 +27,26 @@ Streamlit dashboard covering two Sleeper dynasty leagues: **Sensitivity Training
   coverage/turnover-related point values to confirm the tackle-heavy,
   LB > DB scoring dynamic directly from the API rather than assuming it.
 
+## Step 2 — Scoring engine (built)
+
+- `data/nflverse.py` — pulls weekly player stats (offense + IDP tackling/
+  pass-rush/coverage) via `nflreadpy` (NOT the older `nfl_data_py`, which
+  pins pandas<2.0 and fails to build on Python 3.13+). Also pulls the
+  `sleeper_id` crosswalk table needed to join Sleeper rosters to nflverse
+  stats. Both cached locally as parquet.
+- `engine/scoring.py` — applies a league's real `scoring_settings` to those
+  stats to compute actual weekly fantasy points. `STAT_KEY_MAP` maps known
+  Sleeper scoring keys to nflverse columns; any scoring key with a non-zero
+  point value that isn't mapped gets flagged rather than silently dropped.
+- `pages/2_Scoring_Engine_Test.py` — sanity-check page: pick a week, see
+  top scorers by the league's real scoring, and see any unmapped scoring
+  keys that need `STAT_KEY_MAP` extended. **Run this before trusting the
+  numbers** — check the "unmapped keys" warning against each league's real
+  scoring_settings.
+
 ## Next steps (not built yet)
 
-- Scoring engine (`engine/scoring.py`) — apply each league's actual
-  scoring_settings to nflverse stats to produce projected points
-- Start/Sit rankings page
+- Start/Sit rankings page (built on top of the scoring engine)
 - Free agent comparison against your roster
 - Breakout/trend detector (the "Puka Nacua" signal)
 - Trade finder using dynasty value data (FantasyCalc/KTC)
