@@ -1,13 +1,12 @@
 import streamlit as st
 
-from config import LEAGUES
+from ui import render_league_switcher
 from data.sleeper import get_league, parse_scoring_settings, get_roster_construction
 
 st.set_page_config(page_title="League Settings", page_icon="⚙️", layout="wide")
 st.title("⚙️ League Settings")
 
-league_key = st.session_state.get("active_league_key", list(LEAGUES.keys())[0])
-league_cfg = LEAGUES[league_key]
+league_cfg = render_league_switcher()
 st.subheader(league_cfg["display_name"])
 
 if league_cfg["league_id"] == "REPLACE_WITH_LEAGUE_ID":

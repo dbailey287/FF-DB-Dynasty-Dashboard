@@ -1,24 +1,13 @@
 import streamlit as st
 
-from config import LEAGUES
+from ui import render_league_switcher
 
 st.set_page_config(page_title="Dynasty Dashboard", page_icon="🏈", layout="wide")
 
 st.title("🏈 Dynasty Dashboard")
 st.caption("Sensitivity Training & Queen City Kings — start/sit, free agents, trades, breakouts")
 
-# League switcher lives in session_state so every page can read it
-if "active_league_key" not in st.session_state:
-    st.session_state["active_league_key"] = list(LEAGUES.keys())[0]
-
-league_key = st.selectbox(
-    "Active league",
-    options=list(LEAGUES.keys()),
-    format_func=lambda k: LEAGUES[k]["display_name"],
-    key="active_league_key",
-)
-
-league_cfg = LEAGUES[league_key]
+league_cfg = render_league_switcher()
 
 st.markdown(
     f"""
