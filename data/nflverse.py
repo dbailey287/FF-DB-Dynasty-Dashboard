@@ -134,3 +134,55 @@ def get_team_defense_stats(season: int, force_refresh: bool = False) -> pd.DataF
     merged = team_stats.merge(points_allowed, on=["season", "week", "team"], how="left")
     merged.to_parquet(cache_path, index=False)
     return merged
+
+
+def get_injury_reports(season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Weekly injury report data: report_status (Out/Doubtful/Questionable) and
+    the actual injury (e.g. "Knee") per player per week. Used to explain
+    WHY a player shows few/zero games in a trailing window -- a 0.0 average
+    from zero games means "didn't play," and this says whether that's
+    injury, and what kind, rather than leaving it looking like missing data.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = f"{CACHE_DIR}/injuries_{season}.parquet"
+
+    if not force_refresh and os.path.exists(cache_path):
+        return pd.read_parquet(cache_path)
+
+    injuries = nfl.load_injuries(seasons=[season]).to_pandas()
+    injuries.to_parquet(cache_path, index=False)
+    return injuries
+
+
+def get_latest_injury_status(
+    injuries: pd.DataFrame, id_map: pd.DataFrame, through_week: int
+) -> dict:
+    """
+    Reduces the weekly injury report table to one row per player: their
+    most recent report_status/injury as of through_week. Returns
+    {sleeper_id: {"status": ..., "injury": ...}}. Players with no report
+    at all (never appeared on an injury report) are simply absent from
+    this dict -- callers should treat that as "no designation," not "Out".
+    """
+    slim_map = id_map[["gsis_id", "sleeper_id"]].dropna(subset=["gsis_id"]).copy()
+    slim_map["sleeper_id"] = slim_map["sleeper_id"].apply(
+        lambda x: str(int(x)) if pd.notna(x) else None
+    )
+
+    subset = injuries[
+        (injuries["week"] <= through_week) & injuries["report_status"].notna()
+    ].merge(slim_map, on="gsis_id", how="left")
+    subset = subset.dropna(subset=["sleeper_id"])
+
+    if subset.empty:
+        return {}
+
+    latest = subset.sort_values("week").groupby("sleeper_id").tail(1)
+    return {
+        row["sleeper_id"]: {
+            "status": row["report_status"],
+            "injury": row.get("report_primary_injury"),
+        }
+        for _, row in latest.iterrows()
+    }

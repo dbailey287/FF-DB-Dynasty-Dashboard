@@ -95,6 +95,32 @@ system.
     average scoring as everywhere else, with a min-games filter to screen
     out tiny endorsements from a single spot start.
 
+## Root-cause fix: injury awareness (built)
+
+Answers "can we tell WHY a player shows 0 games instead of just guessing
+from the number?" -- yes, via `nflreadpy.load_injuries()`.
+
+- `data/nflverse.py` — `get_injury_reports()` pulls weekly injury report
+  data (report_status: Out/Doubtful/Questionable + the actual injury type).
+  `get_latest_injury_status()` reduces that to one current status per
+  player as of a given week, keyed by sleeper_id.
+- `engine/rankings.py` — `build_player_table()` (and therefore
+  `rank_roster()`/`rank_free_agents()`) now optionally adds
+  `injury_status`/`injury` columns, so a 0.0 average shows *why* (e.g.
+  "Out - Knee") instead of looking like a data gap. `find_upgrades()` now
+  also excludes free agents currently listed Out/Doubtful/IR from being
+  recommended -- symmetric fix to the rostered-player-baseline bug, since
+  recommending an injured free agent as an "upgrade" would be the same
+  root problem in the other direction.
+- Both `pages/3_Start_Sit.py` and `pages/4_Free_Agents.py` now display
+  injury status/type alongside every player's trailing average.
+
+Note: `games_sampled` itself was already a reasonable proxy for "games
+missed" (nflverse's weekly stats only include a row for players who
+actually played), so the earlier min_games fix already addressed the
+core bug -- this adds the *explanation* on top, and additionally protects
+the free-agent side of the recommendation.
+
 ## Next steps (not built yet)
 
 - Breakout detector (the "Puka Nacua" signal -- efficiency/usage trending
