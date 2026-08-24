@@ -113,14 +113,14 @@ def get_free_agents(league_id: str, all_players: dict | None = None) -> dict:
         all_players = get_all_players()
 
     rostered = get_rostered_player_ids(league_id)
-    relevant_positions = {"QB", "RB", "WR", "TE", "LB", "DB", "DL"}
+    relevant_positions = {"QB", "RB", "WR", "TE", "LB", "DB", "DL", "K", "DEF"}
 
     free_agents = {
         pid: p
         for pid, p in all_players.items()
         if pid not in rostered
         and p.get("position") in relevant_positions
-        and p.get("team") is not None  # drop players with no current NFL team
+        and (p.get("team") is not None or p.get("position") == "DEF")
     }
     return free_agents
 

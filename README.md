@@ -78,11 +78,27 @@ it doesn't yet account for opponent matchup, injury status, or bye weeks.
 Good enough to flag "who's been producing," not yet a full projection
 system.
 
+## Step 4 — Free Agents (built)
+
+- `data/sleeper.py` — `get_free_agents()` now also includes K and DEF
+  (was missing these -- Queen City Kings clearly rosters both).
+- `engine/rankings.py` — refactored around a shared `build_player_table()`
+  so the same trailing-average logic powers both Start/Sit and Free
+  Agents. Added `rank_free_agents()` and `find_upgrades()`.
+- `pages/4_Free_Agents.py` — two views:
+  - **Suggested upgrades** — for each position, compares available free
+    agents to your *worst* rostered player at that position (deliberately
+    not your best -- most real value is in replacing weak depth, not
+    unseating a clear starter) and flags any free agent who'd be an
+    improvement.
+  - **Browse free agents** — full ranked list by position, same trailing-
+    average scoring as everywhere else, with a min-games filter to screen
+    out tiny endorsements from a single spot start.
+
 ## Next steps (not built yet)
 
-- Free agent comparison (built on the same scoring/rankings engine)
-- Free agent comparison against your roster
-- Breakout/trend detector (the "Puka Nacua" signal)
+- Breakout detector (the "Puka Nacua" signal -- efficiency/usage trending
+  up faster than draft capital/dynasty value)
 - Trade finder using dynasty value data (FantasyCalc/KTC)
 - Scheduled data pulls (GitHub Action -> committed parquet/CSV) for
   slow-changing data: league settings, nflverse stats, dynasty values as an
