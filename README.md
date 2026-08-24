@@ -121,6 +121,32 @@ actually played), so the earlier min_games fix already addressed the
 core bug -- this adds the *explanation* on top, and additionally protects
 the free-agent side of the recommendation.
 
+## Benched vs. injured distinction (built)
+
+Direct answer to "how do we tell a benched player from an injured one":
+nflverse's weekly roster status (`load_rosters_weekly`) has real status
+codes -- ACT/RES/INA/DEV/CUT/RET/TRD/EXE -- combined with the injury
+report from the previous round.
+
+- `data/nflverse.py` — `get_weekly_roster_status()` pulls this (already
+  keyed by sleeper_id directly, no crosswalk needed).
+  `get_availability_reasons()` combines it with the injury report into one
+  clear label per player:
+  - `RES` -> "Injured Reserve", `DEV` -> "Practice Squad", etc.
+  - Has an injury report entry -> "Out - Knee" / "Questionable - Ankle" / etc.
+  - `INA` with no injury report -> "Inactive (healthy scratch/coach's decision)"
+  - `ACT` with no injury report -> **blank** -- this is the genuinely
+    healthy-but-benched case, now distinguishable from injury for the
+    first time.
+- `engine/rankings.py` — `injury_lookup` renamed to `availability_lookup`
+  throughout; tables now show one `status` column instead of two separate
+  injury columns. `find_upgrades()`'s exclusion logic now matches on
+  keywords within the combined status string (Out/Doubtful/Injured
+  Reserve) rather than an exact status code, since the string is now
+  richer (e.g. "Out - Knee") -- a blank status (healthy, benched) is
+  never excluded.
+- Both Start/Sit and Free Agents pages display the single `status` column.
+
 ## Next steps (not built yet)
 
 - Breakout detector (the "Puka Nacua" signal -- efficiency/usage trending

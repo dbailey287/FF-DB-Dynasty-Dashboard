@@ -13,6 +13,8 @@ from data.nflverse import (
     get_team_defense_stats,
     get_injury_reports,
     get_latest_injury_status,
+    get_weekly_roster_status,
+    get_availability_reasons,
 )
 from engine.scoring import compute_points, compute_team_defense_points
 from engine.rankings import (
@@ -98,6 +100,8 @@ with st.spinner("Pulling stats and scoring free agents..."):
 
     injuries = get_injury_reports(season)
     injury_lookup = get_latest_injury_status(injuries, id_map, through_week)
+    roster_status = get_weekly_roster_status(season)
+    availability_lookup = get_availability_reasons(roster_status, injury_lookup, through_week)
 
     all_players = get_all_players()
     player_lookup = build_player_lookup(all_players)
@@ -106,9 +110,9 @@ with st.spinner("Pulling stats and scoring free agents..."):
     player_trailing = compute_trailing_player_scores(scored_weekly, weeks)
     defense_trailing = compute_trailing_defense_scores(scored_defense, weeks)
 
-    my_roster_ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing, injury_lookup)
+    my_roster_ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing, availability_lookup)
     fa_ranked = rank_free_agents(
-        free_agents, player_lookup, player_trailing, defense_trailing, min_games, injury_lookup
+        free_agents, player_lookup, player_trailing, defense_trailing, min_games, availability_lookup
     )
     upgrades, skipped_positions = find_upgrades(my_roster_ranked, fa_ranked, min_games)
 
@@ -160,7 +164,7 @@ with browse_tab:
         st.markdown(f"### Top free agents — {', '.join(position_filter)}")
         st.dataframe(
             top[
-                ["name", "position", "team", "avg_points", "games_sampled", "injury_status", "injury"]
+                ["name", "position", "team", "avg_points", "games_sampled", "status"]
             ].reset_index(drop=True),
             use_container_width=True,
         )

@@ -186,3 +186,77 @@ def get_latest_injury_status(
         }
         for _, row in latest.iterrows()
     }
+
+
+def get_weekly_roster_status(season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Weekly roster status per player (ACT/RES/INA/DEV/CUT/RET/TRD/EXE) --
+    already keyed by sleeper_id directly, no crosswalk needed. This is what
+    distinguishes a healthy player simply not getting playing time (ACT,
+    zero snaps) from one on injured reserve (RES) or a practice-squad call-
+    up (DEV), which the injury report alone can't fully capture -- a benched
+    healthy backup never appears on an injury report at all.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = f"{CACHE_DIR}/roster_status_{season}.parquet"
+
+    if not force_refresh and os.path.exists(cache_path):
+        return pd.read_parquet(cache_path)
+
+    roster_status = nfl.load_rosters_weekly(seasons=[season]).to_pandas()
+    roster_status.to_parquet(cache_path, index=False)
+    return roster_status
+
+
+_STATUS_LABELS = {
+    "RES": "Injured Reserve",
+    "DEV": "Practice Squad",
+    "CUT": "Released",
+    "RET": "Retired",
+    "TRD": "Traded",
+    "TRC": "Traded (Cond.)",
+    "EXE": "Exempt",
+}
+
+
+def get_availability_reasons(
+    roster_status: pd.DataFrame,
+    injury_lookup: dict,
+    through_week: int,
+) -> dict:
+    """
+    Combines weekly roster status with the injury report into one clear
+    "why isn't this player producing" label per sleeper_id:
+      - RES/DEV/CUT/RET/TRD/EXE -> that roster status (e.g. "Injured Reserve")
+      - ACT/INA + an injury report entry -> "{report_status} - {injury}"
+        (e.g. "Out - Knee")
+      - INA with no injury report entry -> "Inactive (healthy scratch/coach's decision)"
+      - ACT with no injury report entry -> "" (genuinely just not getting
+        playing time -- this is the "benched, not injured" case)
+    """
+    subset = roster_status[roster_status["week"] <= through_week].dropna(subset=["sleeper_id"])
+    if subset.empty:
+        return {}
+
+    subset = subset.copy()
+    subset["sleeper_id"] = subset["sleeper_id"].apply(
+        lambda x: str(int(x)) if pd.notna(x) else None
+    )
+    latest = subset.sort_values("week").groupby("sleeper_id").tail(1)
+
+    reasons = {}
+    for _, row in latest.iterrows():
+        pid = row["sleeper_id"]
+        status = row["status"]
+        injury_info = injury_lookup.get(pid)
+
+        if status in _STATUS_LABELS:
+            reasons[pid] = _STATUS_LABELS[status]
+        elif injury_info:
+            reasons[pid] = f"{injury_info['status']} - {injury_info['injury']}"
+        elif status == "INA":
+            reasons[pid] = "Inactive (healthy scratch/coach's decision)"
+        else:
+            reasons[pid] = ""  # ACT with no injury report -- healthy, just not playing
+
+    return reasons

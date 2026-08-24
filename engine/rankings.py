@@ -81,16 +81,17 @@ def build_player_table(
     player_trailing: pd.DataFrame,
     defense_trailing: pd.DataFrame,
     starters: set[str] | None = None,
-    injury_lookup: dict | None = None,
+    availability_lookup: dict | None = None,
 ) -> pd.DataFrame:
     """
     Core table builder shared by rank_roster() and rank_free_agents(): every
     player_id joined to name/position/team and trailing avg_points, sorted
     by position then avg_points desc. If starters is provided, adds a
-    'starter' bool column. If injury_lookup is provided (from
-    data.nflverse.get_latest_injury_status), adds 'injury_status' and
-    'injury' columns so a 0.0 average from zero games shows WHY (e.g.
-    "Out - Knee") instead of looking like missing data.
+    'starter' bool column. If availability_lookup is provided (from
+    data.nflverse.get_availability_reasons), adds a 'status' column so a
+    0.0 average from zero games shows WHY -- distinguishing "Injured
+    Reserve" / "Out - Knee" from a blank status, which means genuinely
+    healthy but just not getting playing time (benched, not injured).
     """
     trailing_map = _combined_trailing_map(player_trailing, defense_trailing)
 
@@ -108,10 +109,8 @@ def build_player_table(
         }
         if starters is not None:
             row["starter"] = pid in starters
-        if injury_lookup is not None:
-            injury_info = injury_lookup.get(pid)
-            row["injury_status"] = injury_info["status"] if injury_info else ""
-            row["injury"] = injury_info["injury"] if injury_info else ""
+        if availability_lookup is not None:
+            row["status"] = availability_lookup.get(pid, "")
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -125,13 +124,13 @@ def rank_roster(
     player_lookup: dict,
     player_trailing: pd.DataFrame,
     defense_trailing: pd.DataFrame,
-    injury_lookup: dict | None = None,
+    availability_lookup: dict | None = None,
 ) -> pd.DataFrame:
     """Start/Sit table for one roster: every rostered player + starter flag."""
     player_ids = roster.get("players") or []
     starters = set(roster.get("starters") or [])
     return build_player_table(
-        player_ids, player_lookup, player_trailing, defense_trailing, starters, injury_lookup
+        player_ids, player_lookup, player_trailing, defense_trailing, starters, availability_lookup
     )
 
 
@@ -141,7 +140,7 @@ def rank_free_agents(
     player_trailing: pd.DataFrame,
     defense_trailing: pd.DataFrame,
     min_games: int = 1,
-    injury_lookup: dict | None = None,
+    availability_lookup: dict | None = None,
 ) -> pd.DataFrame:
     """
     Trailing-average table for every free agent in the league. min_games
@@ -150,7 +149,7 @@ def rank_free_agents(
     """
     player_ids = list(free_agents.keys())
     table = build_player_table(
-        player_ids, player_lookup, player_trailing, defense_trailing, injury_lookup=injury_lookup
+        player_ids, player_lookup, player_trailing, defense_trailing, availability_lookup=availability_lookup
     )
     if table.empty:
         return table
@@ -161,7 +160,7 @@ def find_upgrades(
     my_roster_ranked: pd.DataFrame,
     free_agents_ranked: pd.DataFrame,
     min_games: int = 2,
-    exclude_fa_statuses: set[str] | None = None,
+    exclude_fa_status_keywords: tuple[str, ...] = ("Out", "Doubtful", "Injured Reserve"),
 ) -> tuple[pd.DataFrame, list[str]]:
     """
     For each position, compares your rostered players to available free
@@ -183,21 +182,21 @@ def find_upgrades(
     player falls below min_games are skipped entirely (no valid baseline)
     and returned in skipped_positions so the caller can surface that.
 
-    Symmetrically, a free agent currently listed with a status in
-    exclude_fa_statuses (default: Out/Doubtful/IR) is excluded from being
-    recommended -- their strong trailing average may reflect games played
-    before the injury, not their current availability.
+    Symmetrically, a free agent whose status contains a keyword in
+    exclude_fa_status_keywords (default: Out/Doubtful/Injured Reserve) is
+    excluded from being recommended -- their strong trailing average may
+    reflect games played before the injury, not their current availability.
+    A blank status (healthy, just not playing) never gets excluded here.
     """
     if my_roster_ranked.empty or free_agents_ranked.empty:
         return pd.DataFrame(), []
 
-    if exclude_fa_statuses is None:
-        exclude_fa_statuses = {"Out", "Doubtful", "IR"}
-
     candidates_pool = free_agents_ranked
-    if "injury_status" in free_agents_ranked.columns:
+    if "status" in free_agents_ranked.columns:
         candidates_pool = free_agents_ranked[
-            ~free_agents_ranked["injury_status"].isin(exclude_fa_statuses)
+            ~free_agents_ranked["status"].apply(
+                lambda s: bool(s) and any(kw in s for kw in exclude_fa_status_keywords)
+            )
         ]
 
     rows = []

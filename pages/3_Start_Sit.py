@@ -13,6 +13,8 @@ from data.nflverse import (
     get_team_defense_stats,
     get_injury_reports,
     get_latest_injury_status,
+    get_weekly_roster_status,
+    get_availability_reasons,
 )
 from engine.scoring import compute_points, compute_team_defense_points
 from engine.rankings import (
@@ -87,6 +89,8 @@ with st.spinner("Pulling stats and scoring your roster..."):
 
     injuries = get_injury_reports(season)
     injury_lookup = get_latest_injury_status(injuries, id_map, through_week)
+    roster_status = get_weekly_roster_status(season)
+    availability_lookup = get_availability_reasons(roster_status, injury_lookup, through_week)
 
     all_players = get_all_players()
     player_lookup = build_player_lookup(all_players)
@@ -94,7 +98,7 @@ with st.spinner("Pulling stats and scoring your roster..."):
     player_trailing = compute_trailing_player_scores(scored_weekly, weeks)
     defense_trailing = compute_trailing_defense_scores(scored_defense, weeks)
 
-    ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing, injury_lookup)
+    ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing, availability_lookup)
 
 if ranked.empty:
     st.warning("No players found on this roster.")
@@ -109,7 +113,7 @@ with starters_tab:
     st.markdown("### Current starters, ranked by trailing average")
     st.dataframe(
         starters[
-            ["name", "position", "team", "avg_points", "games_sampled", "injury_status", "injury"]
+            ["name", "position", "team", "avg_points", "games_sampled", "status"]
         ].reset_index(drop=True),
         use_container_width=True,
     )
@@ -122,13 +126,14 @@ with full_roster_tab:
     st.markdown("### Full roster by position")
     st.dataframe(
         filtered[
-            ["name", "position", "team", "avg_points", "games_sampled", "starter", "injury_status", "injury"]
+            ["name", "position", "team", "avg_points", "games_sampled", "starter", "status"]
         ].reset_index(drop=True),
         use_container_width=True,
     )
     st.caption(
         "Within each position, bench players ranked above a starter suggest "
-        "a lineup change worth considering. A low avg_points with an "
-        "injury_status shown is likely absence, not poor performance -- "
-        "weigh those differently than a healthy player who's just been bad."
+        "a lineup change worth considering. A low avg_points with a status "
+        "shown means absence (injury, IR, inactive) -- not poor performance. "
+        "A blank status with low avg_points means healthy but just not "
+        "getting playing time, which is a different kind of problem."
     )
