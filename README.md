@@ -32,17 +32,25 @@ Streamlit dashboard covering two Sleeper dynasty leagues: **Sensitivity Training
 - `data/nflverse.py` — pulls weekly player stats (offense + IDP tackling/
   pass-rush/coverage) via `nflreadpy` (NOT the older `nfl_data_py`, which
   pins pandas<2.0 and fails to build on Python 3.13+). Also pulls the
-  `sleeper_id` crosswalk table needed to join Sleeper rosters to nflverse
-  stats. Both cached locally as parquet.
-- `engine/scoring.py` — applies a league's real `scoring_settings` to those
-  stats to compute actual weekly fantasy points. `STAT_KEY_MAP` maps known
-  Sleeper scoring keys to nflverse columns; any scoring key with a non-zero
-  point value that isn't mapped gets flagged rather than silently dropped.
-- `pages/2_Scoring_Engine_Test.py` — sanity-check page: pick a week, see
-  top scorers by the league's real scoring, and see any unmapped scoring
-  keys that need `STAT_KEY_MAP` extended. **Run this before trusting the
-  numbers** — check the "unmapped keys" warning against each league's real
-  scoring_settings.
+  `sleeper_id` crosswalk table (joins Sleeper rosters to nflverse stats),
+  and team-level defense/special-teams stats + schedule scores (for a
+  standard team DEF/D-ST roster slot, joined to points-allowed). All
+  cached locally as parquet.
+- `engine/scoring.py` — two scoring paths:
+  - `compute_points()` — individual players (offense + IDP), using
+    `STAT_KEY_MAP`. Confirmed against real Sleeper scoring_settings: Sleeper
+    does NOT prefix IDP keys with "idp_" (e.g. it's `tkl_solo`, `sack`,
+    `int`, `ff`, `fum_rec` — not `idp_tkl_solo` etc.).
+  - `compute_team_defense_points()` — team DEF/D-ST slot, using
+    `TEAM_DEFENSE_KEY_MAP` plus special handling for `pts_allow_X` bracket
+    keys (only one bracket applies per team per game) and `blk_kick`
+    (summed across punt/PAT/FG blocks, since nflverse splits these).
+  - Any scoring key with a non-zero point value not handled by *either*
+    path gets flagged rather than silently dropped.
+- `pages/2_Scoring_Engine_Test.py` — sanity-check page with tabs for
+  individual players and team defense. Pick a season/week, see top
+  scorers, and see any truly-unmapped scoring keys. **Run this before
+  trusting the numbers** for each league.
 
 ## Next steps (not built yet)
 

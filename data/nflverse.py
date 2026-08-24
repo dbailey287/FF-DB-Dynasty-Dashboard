@@ -94,3 +94,34 @@ def attach_sleeper_ids(weekly_stats: pd.DataFrame, id_map: pd.DataFrame) -> pd.D
         suffixes=("", "_idmap"),
     )
     return merged
+
+
+def get_team_defense_stats(season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Team-level defense/special-teams box score stats (sacks, INTs, fumble
+    recoveries, def/return TDs, safeties, blocked kicks) -- this is what a
+    standard-league team DEF/D-ST roster slot scores off of, as opposed to
+    individual IDP players. Joined with schedule data to add each team's
+    points allowed that week (needed for pts_allow_X scoring tiers), since
+    "points allowed" is really the opponent's score in that game.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = f"{CACHE_DIR}/team_defense_{season}.parquet"
+
+    if not force_refresh and os.path.exists(cache_path):
+        return pd.read_parquet(cache_path)
+
+    team_stats = nfl.load_team_stats(seasons=[season]).to_pandas()
+    schedules = nfl.load_schedules(seasons=[season]).to_pandas()
+
+    home = schedules[["season", "week", "home_team", "away_score"]].rename(
+        columns={"home_team": "team", "away_score": "points_allowed"}
+    )
+    away = schedules[["season", "week", "away_team", "home_score"]].rename(
+        columns={"away_team": "team", "home_score": "points_allowed"}
+    )
+    points_allowed = pd.concat([home, away], ignore_index=True)
+
+    merged = team_stats.merge(points_allowed, on=["season", "week", "team"], how="left")
+    merged.to_parquet(cache_path, index=False)
+    return merged
