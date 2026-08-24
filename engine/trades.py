@@ -103,13 +103,8 @@ def build_league_performance_table(
 
 def get_position_slot_counts(league: dict) -> dict:
     """
-    Counts each position's dedicated starting slots from roster_positions
-    (e.g. {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "LB": 3, "DB": 2}).
-    Deliberately excludes FLEX/SUPER_FLEX/IDP_FLEX/BN -- those are shared
-    across multiple positions and correctly modeling them requires a full
-    lineup optimizer, which is out of scope here. This means the resulting
-    counts are a lower bound on true starting capacity at flex-eligible
-    positions, not the exact number -- see the note in compute_starter_impact.
+    Counts each position's dedicated (non-flex) starting slots from
+    roster_positions, e.g. {"QB": 1, "RB": 2, "WR": 2, "TE": 1}.
     """
     counts: dict[str, int] = {}
     exact_positions = {"QB", "RB", "WR", "TE", "LB", "DB", "DL", "K", "DEF"}
@@ -119,13 +114,95 @@ def get_position_slot_counts(league: dict) -> dict:
     return counts
 
 
-def _top_k_sum_at_position(
-    performance: pd.DataFrame, player_ids: set, position: str, k: int
+# Known Sleeper flex slot names -> the set of positions eligible to fill them.
+FLEX_SLOT_ELIGIBILITY = {
+    "FLEX": {"RB", "WR", "TE"},
+    "WR_RB_FLEX": {"RB", "WR"},
+    "WR_TE_FLEX": {"WR", "TE"},
+    "REC_FLEX": {"WR", "TE"},
+    "SUPER_FLEX": {"QB", "RB", "WR", "TE"},
+    "IDP_FLEX": {"LB", "DB", "DL"},
+}
+
+
+def get_position_groups(league: dict) -> tuple[list[dict], list[str]]:
+    """
+    Merges positions that share a FLEX-type slot into one group, since a
+    player is only really "irreplaceable" relative to everyone eligible
+    for the same slots -- not just same-labeled positions. Without this,
+    an RB3 who's actually starting via FLEX (because he outproduces the
+    team's WR/TE options) looks fully replaceable in isolation, when in
+    practice removing him drops a real starter.
+
+    Returns (groups, unrecognized_flex_slots):
+      - groups: list of {"positions": set(...), "slots": int}, e.g. a
+        standard roster with RB/RB/WR/WR/TE/FLEX(RB/WR/TE) becomes one
+        group {"positions": {"RB","WR","TE"}, "slots": 6}, while QB (no
+        flex sharing) stays its own group {"positions":{"QB"},"slots":1}.
+      - unrecognized_flex_slots: any roster_positions entry that LOOKS
+        like a flex-type slot (contains "FLEX") but isn't in
+        FLEX_SLOT_ELIGIBILITY. Sleeper doesn't publish a complete list of
+        every possible slot name, so a league with an unusual flex slot
+        (a second FLEX variant, a differently-named IDP flex, etc.) could
+        exist that this mapping hasn't seen yet. Rather than silently
+        dropping that slot's capacity, the caller should surface this list
+        so it's obvious the starter-impact numbers may be undercounting
+        for that league until the mapping is extended -- same pattern as
+        the "unmapped scoring keys" warning elsewhere in this app.
+    """
+    slot_counts = get_position_slot_counts(league)
+    positions = set(slot_counts.keys())
+
+    parent = {p: p for p in positions}
+
+    def find(p):
+        while parent[p] != p:
+            p = parent[p]
+        return p
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    flex_slot_list = []
+    unrecognized_flex_slots = []
+    seen_unrecognized = set()
+    for slot in league.get("roster_positions", []):
+        if slot in FLEX_SLOT_ELIGIBILITY:
+            eligible = FLEX_SLOT_ELIGIBILITY[slot]
+            eligible_present = eligible & positions
+            if eligible_present:
+                flex_slot_list.append((slot, eligible_present))
+                eligible_list = list(eligible_present)
+                for other in eligible_list[1:]:
+                    union(eligible_list[0], other)
+        elif "FLEX" in slot.upper() and slot not in seen_unrecognized:
+            unrecognized_flex_slots.append(slot)
+            seen_unrecognized.add(slot)
+
+    groups: dict[str, dict] = {}
+    for p in positions:
+        root = find(p)
+        groups.setdefault(root, {"positions": set(), "slots": 0})
+        groups[root]["positions"].add(p)
+        groups[root]["slots"] += slot_counts[p]
+
+    for slot_name, eligible_present in flex_slot_list:
+        representative = next(iter(eligible_present))
+        root = find(representative)
+        groups[root]["slots"] += 1
+
+    return list(groups.values()), unrecognized_flex_slots
+
+
+def _top_k_sum(
+    performance: pd.DataFrame, player_ids: set, positions: set, k: int
 ) -> float:
-    """Sum of the top-k eligible players' trailing avg_points at a position (0 if none/fewer than k)."""
+    """Sum of the top-k eligible players' trailing avg_points across a set of positions."""
     pool = performance[
         performance["sleeper_id"].isin(player_ids)
-        & (performance["position"] == position)
+        & performance["position"].isin(positions)
         & performance["eligible"]
     ]
     if pool.empty:
@@ -139,42 +216,48 @@ def compute_starter_impact(
     send_ids: list,
     receive_ids: list,
     performance: pd.DataFrame,
-    position_slot_counts: dict | None = None,
+    position_groups: list[dict] | None = None,
 ) -> tuple[float, dict]:
     """
-    For every position touched by the trade, compares the sum of your top-K
-    eligible options at that position before vs. after the deal, where K is
-    that position's actual number of starting roster slots (from
-    get_position_slot_counts). This correctly credits upgrading a weak
-    starter (e.g. WR2) even when your WR1 is untouched -- comparing only
-    the single best player per position (an earlier version of this) missed
-    exactly that case.
+    For every position GROUP touched by the trade (a group merges positions
+    that share a FLEX/SUPER_FLEX/IDP_FLEX slot -- see get_position_groups),
+    compares the sum of your top-K eligible options across that whole group
+    before vs. after the deal, where K is the group's total real starting
+    capacity (exact slots + shared flex slots).
 
-    LIMITATION: FLEX/SUPER_FLEX/IDP_FLEX slots aren't modeled (see
-    get_position_slot_counts) -- a trade that improves a player who'd only
-    ever play in a FLEX spot may be undercounted. If position_slot_counts
-    is not provided, defaults to 1 per position (same as comparing only
-    the single best, for backward compatibility).
+    This correctly credits/debits a player who starts via FLEX rather than
+    a dedicated slot -- e.g. an RB3 who's actually your flex starter shows
+    up properly when traded away, because he's evaluated against the
+    combined RB/WR/TE pool sized to its true total slot count, not just
+    counted (and likely dismissed) against a too-small "RB slots only" pool.
 
-    Returns (net_impact, per_position_breakdown).
+    If position_groups is not provided, falls back to one slot per exact
+    position (no flex modeling) for backward compatibility.
+
+    Returns (net_impact, per_group_breakdown) where breakdown keys are a
+    "/"-joined label of the group's positions (e.g. "RB/WR/TE").
     """
-    if position_slot_counts is None:
-        position_slot_counts = {}
+    if position_groups is None:
+        exact_positions = performance["position"].unique()
+        position_groups = [{"positions": {p}, "slots": 1} for p in exact_positions]
 
-    touched_positions = performance[
-        performance["sleeper_id"].isin(send_ids + receive_ids)
-    ]["position"].unique()
+    touched_positions = set(
+        performance[performance["sleeper_id"].isin(send_ids + receive_ids)]["position"]
+    )
 
     after_ids = (my_team_ids - set(send_ids)) | set(receive_ids)
 
     breakdown = {}
     net_impact = 0.0
-    for position in touched_positions:
-        k = position_slot_counts.get(position, 1)
-        before = _top_k_sum_at_position(performance, my_team_ids, position, k)
-        after = _top_k_sum_at_position(performance, after_ids, position, k)
+    for group in position_groups:
+        if not (group["positions"] & touched_positions):
+            continue
+        label = "/".join(sorted(group["positions"]))
+        k = group["slots"]
+        before = _top_k_sum(performance, my_team_ids, group["positions"], k)
+        after = _top_k_sum(performance, after_ids, group["positions"], k)
         delta = after - before
-        breakdown[position] = {"before": round(before, 2), "after": round(after, 2), "delta": round(delta, 2)}
+        breakdown[label] = {"before": round(before, 2), "after": round(after, 2), "delta": round(delta, 2)}
         net_impact += delta
 
     return round(net_impact, 2), breakdown
@@ -255,9 +338,9 @@ def annotate_starter_impact(
     suggestions: pd.DataFrame,
     my_team_ids: set,
     performance: pd.DataFrame,
-    position_slot_counts: dict | None = None,
+    position_groups: list[dict] | None = None,
 ) -> pd.DataFrame:
-    """Adds starter_impact (net points) and starter_impact_detail (per-position dict) columns."""
+    """Adds starter_impact (net points) and starter_impact_detail (per-group dict) columns."""
     if suggestions.empty:
         return suggestions
 
@@ -265,7 +348,7 @@ def annotate_starter_impact(
     details = []
     for _, row in suggestions.iterrows():
         net, breakdown = compute_starter_impact(
-            my_team_ids, row["you_send_ids"], row["you_receive_ids"], performance, position_slot_counts
+            my_team_ids, row["you_send_ids"], row["you_receive_ids"], performance, position_groups
         )
         impacts.append(net)
         details.append(breakdown)

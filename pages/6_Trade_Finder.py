@@ -26,7 +26,7 @@ from engine.rankings import (
 from engine.trades import (
     build_team_rosters_with_values,
     build_league_performance_table,
-    get_position_slot_counts,
+    get_position_groups,
     find_trade_suggestions,
     annotate_starter_impact,
 )
@@ -82,6 +82,17 @@ fc_params = infer_fantasycalc_params(league)
 league_season = int(league.get("season", 2025))
 default_season = league_season - 1 if datetime.date.today().month < 9 else league_season
 
+# Default "through week" to the most recent week with real data, not a
+# fixed early-season week -- a hardcoded early default (e.g. week 3)
+# badly understates anyone whose role emerged later (rookies especially),
+# which is exactly what caused a bad recommendation last round.
+try:
+    _default_season_weekly = get_weekly_stats(default_season)
+    default_through_week = min(int(_default_season_weekly["week"].max()), 18)
+except Exception:
+    default_through_week = 10
+default_trailing_n = min(5, default_through_week)
+
 st.caption(
     f"FantasyCalc values for: {'Superflex' if fc_params['numQbs'] == 2 else '1QB'}, "
     f"{fc_params['numTeams']}-team, {fc_params['ppr']} PPR (inferred from this league)."
@@ -92,9 +103,13 @@ with col1:
     season = st.number_input(
         "Season", min_value=2015, max_value=league_season, value=default_season, step=1
     )
-    through_week = st.number_input("Through week", min_value=1, max_value=18, value=3, step=1)
+    through_week = st.number_input(
+        "Through week", min_value=1, max_value=18, value=default_through_week, step=1
+    )
 with col2:
-    trailing_n = st.number_input("Trailing weeks", min_value=1, max_value=10, value=3, step=1)
+    trailing_n = st.number_input(
+        "Trailing weeks", min_value=1, max_value=10, value=default_trailing_n, step=1
+    )
     max_package_size = st.number_input("Max players/side", min_value=1, max_value=3, value=2, step=1)
 with col3:
     fairness_tolerance_pct = st.slider("Fair tolerance (%)", min_value=5, max_value=30, value=15, step=5)
@@ -143,7 +158,7 @@ with st.spinner("Pulling values, rosters, and performance data..."):
 
     rosters, users = load_league_context(league_cfg["league_id"])
     team_rosters = build_team_rosters_with_values(rosters, users, player_lookup, dynasty_values)
-    position_slot_counts = get_position_slot_counts(league)
+    position_groups, unrecognized_flex_slots = get_position_groups(league)
 
     team_name_by_owner = {}
     for u in users:
@@ -155,6 +170,16 @@ with st.spinner("Pulling values, rosters, and performance data..."):
 if my_team_name not in team_rosters:
     st.error("Couldn't match your roster to a team name -- try reloading.")
     st.stop()
+
+if unrecognized_flex_slots:
+    st.warning(
+        f"This league has a flex-type slot not yet mapped: "
+        f"{', '.join(unrecognized_flex_slots)}. That slot's capacity is NOT "
+        f"being counted in starter_impact below, which likely undercounts "
+        f"players who start via it -- please share this exact slot name so "
+        f"the mapping can be extended (same issue we ran into with scoring "
+        f"keys earlier)."
+    )
 
 my_team = team_rosters[my_team_name]
 my_team_ids = set(my_team["player_id"])
@@ -184,7 +209,7 @@ with st.spinner(f"Searching for trades across all {len(other_teams)} other teams
             top_n=10,  # per-opponent cap, kept modest since we combine across all opponents
         )
         if not suggestions.empty:
-            suggestions = annotate_starter_impact(suggestions, my_team_ids, performance, position_slot_counts)
+            suggestions = annotate_starter_impact(suggestions, my_team_ids, performance, position_groups)
             suggestions.insert(0, "opponent", opponent_name)
             all_suggestions.append(suggestions)
 
@@ -233,7 +258,7 @@ with st.expander("Per-position breakdown for the top trade"):
         top = display_df.iloc[0]
         st.write(f"**{top['you_send']}** → **{top['you_receive']}** (vs. {top['opponent']})")
         detail_rows = [
-            {"position": pos, **vals} for pos, vals in top["starter_impact_detail"].items()
+            {"position group": label, **vals} for label, vals in top["starter_impact_detail"].items()
         ]
         if detail_rows:
             st.table(pd.DataFrame(detail_rows))
@@ -241,11 +266,11 @@ with st.expander("Per-position breakdown for the top trade"):
             st.caption("No position breakdown available for this trade.")
 
 st.caption(
-    "LIMITATIONS: starter_impact compares the sum of your top-K players at "
-    "each touched position (K = that position's real starting roster "
-    "slots) before vs. after the trade -- it does NOT model FLEX/Superflex/"
-    "IDP_FLEX slots, since that requires a full lineup optimizer. A player "
-    "who'd only ever occupy a FLEX spot may be undercounted. This is also "
-    "pure value + performance math: it doesn't know a manager's contend/"
+    "starter_impact compares your top-K eligible players before vs. after "
+    "the trade, grouped by whichever positions share a FLEX/Superflex/"
+    "IDP_FLEX slot in this league (K = that group's total real starting "
+    "capacity) -- so a player who starts via FLEX rather than a dedicated "
+    "slot is still counted correctly. This is still pure value + "
+    "performance math on top of that: it doesn't know a manager's contend/"
     "rebuild timeline or whether they'd actually consider the deal."
 )

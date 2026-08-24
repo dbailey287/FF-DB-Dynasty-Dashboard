@@ -216,13 +216,32 @@ source (unlike the nflverse-based data elsewhere in the app).
   matters, with dynasty value shown as secondary context.
 
 **Known limitations:**
-- starter_impact does NOT model FLEX/Superflex/IDP_FLEX slots (would need
-  a full lineup optimizer) -- a player who'd only ever occupy a FLEX spot
-  may be undercounted, and a trade that removes your only starter at an
-  exact position (even with FLEX-eligible depth elsewhere) may look like
-  a bigger downgrade than it truly is in practice
 - pure value + performance math -- doesn't know a manager's contend/
-  rebuild timeline or roster construction limits beyond slot counts
+  rebuild timeline or whether a proposed player is actually droppable
+
+### Fix: FLEX slots weren't modeled, causing a bad recommendation
+
+Reported real-world bug: the tool suggested trading away Cam Skattebo (a
+real flex starter) + a backup TE for two backup QBs, and showed it as a
+**positive** starter impact -- because the original logic only measured
+capacity per exact position label ("RB" slots specifically), so a player
+who earns his start via FLEX rather than a dedicated slot looked fully
+replaceable in isolation.
+
+- `engine/trades.py` — replaced exact-position-only slot counting with
+  `get_position_groups()`, which merges positions that share a FLEX/
+  Superflex/IDP_FLEX slot into one group (e.g. a standard RB/RB/WR/WR/TE/
+  FLEX roster becomes one merged {RB, WR, TE} group sized 6, not three
+  separate pools of 2/2/1). `compute_starter_impact()` now compares top-K
+  sums across the whole merged group, correctly capturing a FLEX starter's
+  real value. Verified against the exact reported scenario -- now
+  correctly shows a real downgrade instead of a false positive.
+- Also fixed: `pages/6_Trade_Finder.py`'s default "through week" was
+  hardcoded to week 3, badly understating any player (especially a
+  rookie) whose role emerged later in the season -- now defaults to the
+  most recent week with real data available (capped at 18, since
+  nflverse's week numbering extends into playoffs up to ~22, which would
+  have exceeded the widget's bounds and crashed).
 
 ## Next steps (not built yet)
 
