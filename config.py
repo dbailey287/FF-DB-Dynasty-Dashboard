@@ -12,12 +12,12 @@ which pages/logic apply, actual scoring is always pulled live from the API.
 LEAGUES = {
     "sensitivity_training": {
         "display_name": "Sensitivity Training",
-        "league_id": "REPLACE_WITH_LEAGUE_ID",
+        "league_id": "1315037653787246592",
         "league_type": "idp",  # LB/DB + 2 flex-D spots, tackle-heavy, .5 PPR
     },
     "queen_city_kings": {
         "display_name": "Queen City Kings",
-        "league_id": "REPLACE_WITH_LEAGUE_ID",
+        "league_id": "1354529254221561856",
         "league_type": "offense_only",  # 1 PPR, no IDP
     },
 }
