@@ -83,7 +83,11 @@ STAT_KEY_MAP: dict[str, str | None] = {
     "idp_def_td": "def_tds",
     "idp_safe": "def_safeties",
     "idp_blk_kick": None,  # handled specially: sum of punt/PAT/FG blocks
-    # Special teams return-play stats -- "st_" prefix, NOT "def_st_"
+    # Special teams return-play stats -- confirmed real key is "def_st_"
+    # prefixed. Both spellings mapped defensively in case of future misreads.
+    "def_st_ff": "def_fumbles_forced",
+    "def_st_fum_rec": "fumble_recovery_opp",
+    "def_st_td": "special_teams_tds",
     "st_ff": "def_fumbles_forced",
     "st_fum_rec": "fumble_recovery_opp",
     "st_td": "special_teams_tds",
@@ -173,7 +177,10 @@ TEAM_DEFENSE_KEY_MAP: dict[str, str] = {
     "fum_rec_td": "fumble_recovery_tds",
     "def_td": "def_tds",
     "safe": "def_safeties",
-    "st_ff": "def_fumbles_forced",
+    "def_st_ff": "def_fumbles_forced",
+    "def_st_fum_rec": "fumble_recovery_opp",
+    "def_st_td": "special_teams_tds",
+    "st_ff": "def_fumbles_forced",  # accept both spellings defensively
     "st_fum_rec": "fumble_recovery_opp",
     "st_td": "special_teams_tds",
 }
