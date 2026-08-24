@@ -24,6 +24,10 @@ LEAGUES = {
 
 SLEEPER_API_BASE = "https://api.sleeper.app/v1"
 
+# Your Sleeper username -- used to figure out which roster in each league
+# is yours (vs. an opponent's) for the Start/Sit page.
+SLEEPER_USERNAME = "dbailey287"
+
 # Local cache locations
 CACHE_DIR = "data/cache"
 PLAYERS_CACHE_PATH = f"{CACHE_DIR}/players.json"

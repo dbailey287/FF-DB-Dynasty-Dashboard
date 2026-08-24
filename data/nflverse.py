@@ -82,9 +82,18 @@ def attach_sleeper_ids(weekly_stats: pd.DataFrame, id_map: pd.DataFrame) -> pd.D
     Joins nflverse weekly stats (keyed on player_id == gsis_id) to Sleeper
     IDs via the crosswalk, so the rest of the app can look players up by
     Sleeper's own ID (what rosters/free-agents use).
+
+    Sleeper's API returns player_id as a plain string (e.g. "4046"), but
+    the crosswalk's sleeper_id column comes through as float64 (because of
+    NaNs for players with no Sleeper ID) -- left as-is, "4046" would never
+    match 4046.0 when joining against real roster data. Normalized to a
+    clean string here so downstream lookups actually match.
     """
     slim_map = id_map[["gsis_id", "sleeper_id", "name", "position", "team"]].dropna(
         subset=["gsis_id"]
+    ).copy()
+    slim_map["sleeper_id"] = slim_map["sleeper_id"].apply(
+        lambda x: str(int(x)) if pd.notna(x) else None
     )
     merged = weekly_stats.merge(
         slim_map,

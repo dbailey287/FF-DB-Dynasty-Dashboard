@@ -52,9 +52,35 @@ Streamlit dashboard covering two Sleeper dynasty leagues: **Sensitivity Training
   scorers, and see any truly-unmapped scoring keys. **Run this before
   trusting the numbers** for each league.
 
+## Step 3 — Start/Sit rankings (built)
+
+- `config.py` — added `SLEEPER_USERNAME` so the app knows which roster in
+  each league is yours.
+- `data/sleeper.py` — `get_user()` and `get_my_roster()` find your roster
+  by matching your username's Sleeper user_id against each league's
+  roster owner_ids.
+- `data/nflverse.py` — fixed a real dtype bug in `attach_sleeper_ids()`:
+  the crosswalk's `sleeper_id` column comes through as float64 (due to
+  NaNs), which would silently fail to match Sleeper's actual string player
+  IDs from roster data. Normalized to clean strings.
+- `engine/rankings.py` — builds a name/position/team lookup from Sleeper's
+  player DB (handling team DEF entries, which Sleeper keys by team
+  abbreviation rather than a normal player_id), computes each rostered
+  player's trailing average `league_points` over a chosen window of
+  recent weeks, and ranks the roster by position.
+- `pages/3_Start_Sit.py` — pick season/week/trailing-window, see your
+  current starters ranked by trailing average, plus a full-roster view by
+  position to spot bench players outscoring a starter.
+
+**Known limitation:** this ranks by *trailing average performance*, not a
+true forward-looking projection (nflverse doesn't publish projections) —
+it doesn't yet account for opponent matchup, injury status, or bye weeks.
+Good enough to flag "who's been producing," not yet a full projection
+system.
+
 ## Next steps (not built yet)
 
-- Start/Sit rankings page (built on top of the scoring engine)
+- Free agent comparison (built on the same scoring/rankings engine)
 - Free agent comparison against your roster
 - Breakout/trend detector (the "Puka Nacua" signal)
 - Trade finder using dynasty value data (FantasyCalc/KTC)

@@ -52,6 +52,26 @@ def get_transactions(league_id: str, week: int) -> list[dict]:
     return _get(f"/league/{league_id}/transactions/{week}")
 
 
+def get_user(username: str) -> dict:
+    """Sleeper user object for a username -- gives us user_id to match against roster owner_id."""
+    return _get(f"/user/{username}")
+
+
+def get_my_roster(league_id: str, username: str) -> dict | None:
+    """
+    Finds the roster in this league owned by the given Sleeper username.
+    Returns the roster dict (with 'players' and 'starters' lists of
+    player_ids) or None if this user isn't in the league.
+    """
+    user = get_user(username)
+    user_id = user.get("user_id")
+    rosters = get_rosters(league_id)
+    for r in rosters:
+        if r.get("owner_id") == user_id:
+            return r
+    return None
+
+
 def get_all_players(force_refresh: bool = False) -> dict:
     """
     Full NFL player DB, keyed by player_id. This is a large payload --
