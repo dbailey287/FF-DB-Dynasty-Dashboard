@@ -57,6 +57,31 @@ def get_user(username: str) -> dict:
     return _get(f"/user/{username}")
 
 
+def get_player_ownership_map(league_id: str) -> dict:
+    """
+    Maps every rostered player_id in this league to the fantasy team that
+    owns them (by team name if set, else the manager's display name).
+    Players not in this dict are free agents. Used to show, e.g., a
+    breakout candidate is sitting on "Bob's Bombers" bench rather than
+    being available on waivers.
+    """
+    rosters = get_rosters(league_id)
+    users = get_users(league_id)
+
+    team_name_by_owner = {}
+    for u in users:
+        team_name = (u.get("metadata") or {}).get("team_name") or u.get("display_name") or u.get("user_id")
+        team_name_by_owner[u["user_id"]] = team_name
+
+    ownership = {}
+    for r in rosters:
+        team_name = team_name_by_owner.get(r.get("owner_id"), "Unknown Team")
+        for pid in r.get("players") or []:
+            ownership[pid] = team_name
+
+    return ownership
+
+
 def get_my_roster(league_id: str, username: str) -> dict | None:
     """
     Finds the roster in this league owned by the given Sleeper username.

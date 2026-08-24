@@ -172,6 +172,14 @@ value (FantasyCalc/KeepTradeCut) to confirm the market hasn't already
 priced the change in -- that's a natural next enhancement once the trade
 finder (which needs that same value data) is built.
 
+- `data/sleeper.py` — `get_player_ownership_map()` maps every rostered
+  player_id in the league to their fantasy team's name (or "Free Agent"
+  if unrostered).
+- `pages/5_Breakouts.py` — added a Show toggle (All / Free agents only /
+  Rostered only) and a `fantasy_team` column, so a breakout candidate
+  sitting on another manager's bench (a buy-low trade target) is now
+  distinguishable from one actually available on waivers.
+
 ## Next steps (not built yet)
 
 - Trade finder using dynasty value data (FantasyCalc/KTC) -- would also

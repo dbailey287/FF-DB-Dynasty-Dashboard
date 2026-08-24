@@ -3,7 +3,7 @@ import datetime
 import streamlit as st
 
 from ui import render_league_switcher
-from data.sleeper import get_league
+from data.sleeper import get_league, get_player_ownership_map
 from data.nflverse import get_weekly_stats, get_player_id_map, attach_sleeper_ids
 from engine.breakouts import find_breakout_candidates
 
@@ -26,6 +26,11 @@ if league_cfg["league_id"] == "REPLACE_WITH_LEAGUE_ID":
 @st.cache_data(ttl=3600)
 def load_league(league_id: str):
     return get_league(league_id)
+
+
+@st.cache_data(ttl=1800)  # shorter TTL -- rosters change during the week
+def load_ownership(league_id: str):
+    return get_player_ownership_map(league_id)
 
 
 league = load_league(league_cfg["league_id"])
@@ -52,6 +57,11 @@ with col3:
     )
 
 positions = st.multiselect("Positions", options=["WR", "RB", "TE"], default=["WR", "RB", "TE"])
+availability_filter = st.radio(
+    "Show",
+    options=["All players", "Free agents only", "Rostered only"],
+    horizontal=True,
+)
 
 weeks = list(range(max(1, through_week - window_size + 1), through_week + 1))
 st.caption(
@@ -68,6 +78,7 @@ with st.spinner("Pulling stats and scanning for breakout patterns..."):
 
     id_map = get_player_id_map()
     weekly = attach_sleeper_ids(weekly, id_map)
+    ownership = load_ownership(league_cfg["league_id"])
 
     candidates = find_breakout_candidates(
         weekly,
@@ -79,6 +90,20 @@ with st.spinner("Pulling stats and scanning for breakout patterns..."):
         max_years_since_draft=max_years_since_draft,
         season=season,
     )
+
+    if not candidates.empty:
+        candidates["fantasy_team"] = candidates["sleeper_id"].map(ownership).fillna("Free Agent")
+
+        if availability_filter == "Free agents only":
+            candidates = candidates[candidates["fantasy_team"] == "Free Agent"]
+        elif availability_filter == "Rostered only":
+            candidates = candidates[candidates["fantasy_team"] != "Free Agent"]
+
+        candidates = candidates.drop(columns=["sleeper_id"]).rename(columns={"team": "nfl_team"})
+        # Put fantasy_team right after name/position so it's immediately visible
+        cols = candidates.columns.tolist()
+        cols.insert(cols.index("nfl_team") + 1, cols.pop(cols.index("fantasy_team")))
+        candidates = candidates[cols].reset_index(drop=True)
 
 st.divider()
 

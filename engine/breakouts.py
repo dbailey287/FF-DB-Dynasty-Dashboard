@@ -115,6 +115,7 @@ def find_breakout_candidates(
     candidates = candidates.sort_values("wopr_trend", ascending=False).head(top_n)
 
     display_cols = [
+        "sleeper_id",
         "name",
         "position",
         "team",
