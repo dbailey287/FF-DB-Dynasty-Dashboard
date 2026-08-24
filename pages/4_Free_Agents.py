@@ -103,18 +103,27 @@ with st.spinner("Pulling stats and scoring free agents..."):
 
     my_roster_ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing)
     fa_ranked = rank_free_agents(free_agents, player_lookup, player_trailing, defense_trailing, min_games)
-    upgrades = find_upgrades(my_roster_ranked, fa_ranked, min_games)
+    upgrades, skipped_positions = find_upgrades(my_roster_ranked, fa_ranked, min_games)
 
 st.divider()
 
 upgrades_tab, browse_tab = st.tabs(["🚀 Suggested upgrades", "Browse free agents"])
 
 with upgrades_tab:
+    if skipped_positions:
+        st.warning(
+            f"Skipped comparing at: {', '.join(sorted(set(skipped_positions)))} -- "
+            f"every rostered player there has fewer than {min_games} games in this "
+            "window (injured/IR, bye, or just acquired), so there's no meaningful "
+            "'worst performer' to compare free agents against. A 0.0 average from "
+            "zero games isn't a real performance floor."
+        )
+
     if upgrades.empty:
         st.info(
-            "No free agent currently beats your worst rostered player at any "
-            "position in this window -- try a different trailing window, or "
-            "your bench depth may just be solid right now."
+            "No free agent currently beats your worst *eligible* rostered player "
+            "at any position in this window -- try a different trailing window, "
+            "or your bench depth may just be solid right now."
         )
     else:
         st.markdown(

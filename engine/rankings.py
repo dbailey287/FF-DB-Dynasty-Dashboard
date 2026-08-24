@@ -145,27 +145,43 @@ def rank_free_agents(
 
 def find_upgrades(
     my_roster_ranked: pd.DataFrame, free_agents_ranked: pd.DataFrame, min_games: int = 2
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, list[str]]:
     """
     For each position, compares your rostered players to available free
-    agents and flags any free agent outscoring your WORST rostered player
-    at that position (i.e. someone you could add outright, or at minimum
-    a real bench upgrade). Returns one row per suggested upgrade, sorted by
-    point differential descending -- the most clear-cut upgrades first.
+    agents and flags any free agent outscoring your WORST *eligible*
+    rostered player at that position (i.e. someone you could add outright,
+    or at minimum a real bench upgrade). Returns (upgrades_df, skipped_positions).
 
     Deliberately compares against your worst rostered player rather than
     your best, since "beats my best starter" is a much higher and less
     useful bar -- most real value gets found in replacing weak bench/depth
     pieces, not unseating a clear starter.
+
+    IMPORTANT: rostered players with fewer than min_games in the trailing
+    window (e.g. injured/IR, bye week, just acquired) are excluded from
+    being the "worst" baseline. A trailing average of 0.0 from zero games
+    means "no data," not "this player is bad" -- treating it as the floor
+    would make almost every free agent look like a false upgrade over an
+    injured player who simply didn't play. Positions where EVERY rostered
+    player falls below min_games are skipped entirely (no valid baseline)
+    and returned in skipped_positions so the caller can surface that.
     """
     if my_roster_ranked.empty or free_agents_ranked.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), []
 
     rows = []
+    skipped_positions = []
+
     for position in my_roster_ranked["position"].unique():
         my_players = my_roster_ranked[my_roster_ranked["position"] == position]
-        worst_rostered = my_players["avg_points"].min()
-        worst_rostered_name = my_players.loc[my_players["avg_points"].idxmin(), "name"]
+        eligible = my_players[my_players["games_sampled"] >= min_games]
+
+        if eligible.empty:
+            skipped_positions.append(position)
+            continue
+
+        worst_rostered = eligible["avg_points"].min()
+        worst_rostered_name = eligible.loc[eligible["avg_points"].idxmin(), "name"]
 
         candidates = free_agents_ranked[
             (free_agents_ranked["position"] == position)
@@ -186,6 +202,7 @@ def find_upgrades(
             )
 
     if not rows:
-        return pd.DataFrame()
+        return pd.DataFrame(), skipped_positions
 
-    return pd.DataFrame(rows).sort_values("point_diff", ascending=False).reset_index(drop=True)
+    result = pd.DataFrame(rows).sort_values("point_diff", ascending=False).reset_index(drop=True)
+    return result, skipped_positions
