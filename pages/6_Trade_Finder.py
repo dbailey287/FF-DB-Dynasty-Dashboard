@@ -266,11 +266,13 @@ with st.expander("Per-position breakdown for the top trade"):
             st.caption("No position breakdown available for this trade.")
 
 st.caption(
-    "starter_impact compares your top-K eligible players before vs. after "
-    "the trade, grouped by whichever positions share a FLEX/Superflex/"
-    "IDP_FLEX slot in this league (K = that group's total real starting "
-    "capacity) -- so a player who starts via FLEX rather than a dedicated "
-    "slot is still counted correctly. This is still pure value + "
-    "performance math on top of that: it doesn't know a manager's contend/"
-    "rebuild timeline or whether they'd actually consider the deal."
+    "starter_impact fills each position's own dedicated slots with players "
+    "of that exact position first (a TE slot can't be filled by an RB, no "
+    "matter how deep your RB room is), then lets only the leftover players "
+    "compete for shared FLEX/Superflex/IDP_FLEX slots -- so losing your only "
+    "good player at a scarce position (e.g. an elite TE) is never masked by "
+    "gaining depth at a different, FLEX-sharing position. This is still "
+    "pure value + performance math on top of that: it doesn't know a "
+    "manager's contend/rebuild timeline or whether they'd actually consider "
+    "the deal."
 )

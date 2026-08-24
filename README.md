@@ -219,6 +219,32 @@ source (unlike the nflverse-based data elsewhere in the app).
 - pure value + performance math -- doesn't know a manager's contend/
   rebuild timeline or whether a proposed player is actually droppable
 
+### Fix: dedicated position slots weren't protected from FLEX-sharing depth
+
+Reported real-world bug #2: the tool suggested trading Brock Bowers (an
+elite, scarce TE) for Cam Ward + Chase Brown and showed it as a strongly
+**positive** starter impact -- even though losing your only good TE is a
+real downgrade regardless of RB depth gained elsewhere. Verified via a
+live FantasyCalc fetch that the dynasty *value* numbers were roughly
+accurate to the real market (Chase Brown is genuinely valued surprisingly
+high right now) -- the bug was entirely in the starter-impact math, not
+the value data.
+
+Root cause: the previous fix (merging FLEX-sharing positions into one
+group) went too far -- it let ANY player in the group fill ANY of the
+group's slots interchangeably, including the position's own DEDICATED
+slots. In reality only the shared FLEX slot is interchangeable; a
+dedicated TE slot can only ever be filled by a TE.
+
+- `engine/trades.py` — `get_position_groups()` now tracks each position's
+  exact/dedicated slot count separately from the group's shared flex slot
+  count. `_group_value()` (replacing the flat top-K sum) fills dedicated
+  slots using ONLY players of that exact position first, and only the
+  leftover players compete for the shared flex slots. Verified against
+  the exact reported scenario -- now correctly shows a real downgrade
+  (confirmed by hand-calculation), and the earlier Skattebo/FLEX fix
+  still passes as a regression test.
+
 ### Fix: FLEX slots weren't modeled, causing a bad recommendation
 
 Reported real-world bug: the tool suggested trading away Cam Skattebo (a
