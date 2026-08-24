@@ -203,15 +203,26 @@ source (unlike the nflverse-based data elsewhere in the app).
   between your team and a chosen opponent, keeping only trades within a
   fairness tolerance or tilted your way up to a configurable max. Ranked
   closest-to-even first (most likely to be accepted), not most lopsided.
-- `pages/6_Trade_Finder.py` — pick an opponent, adjust package size and
-  fairness sliders, see suggested trades.
+  **Also computes real starter lineup impact**: for every position touched
+  by a trade, compares the sum of your top-K eligible players at that
+  position (K = that position's actual starting roster slot count) before
+  vs. after the deal -- correctly credits upgrading a weak starter (e.g.
+  WR2) even when a stronger WR1 is untouched, and correctly excludes
+  injured/IR/practice-squad players from counting as a real lineup option
+  either lost or gained.
+- `pages/6_Trade_Finder.py` — shows suggested trades across **every**
+  opponent at once (was previously one-team-at-a-time via a selectbox),
+  sorted by starter lineup impact first since that's what actually
+  matters, with dynasty value shown as secondary context.
 
-**Known limitations:** pure value math -- doesn't know positional needs,
-roster construction limits, a manager's contend/rebuild timeline, or
-whether a proposed player is actually droppable/needed. A real judgment
-layer (cross-referencing roster construction and team needs) is a natural
-future enhancement, as is combining this with the breakout detector to
-flag buy-low targets whose value hasn't caught up to their role yet.
+**Known limitations:**
+- starter_impact does NOT model FLEX/Superflex/IDP_FLEX slots (would need
+  a full lineup optimizer) -- a player who'd only ever occupy a FLEX spot
+  may be undercounted, and a trade that removes your only starter at an
+  exact position (even with FLEX-eligible depth elsewhere) may look like
+  a bigger downgrade than it truly is in practice
+- pure value + performance math -- doesn't know a manager's contend/
+  rebuild timeline or roster construction limits beyond slot counts
 
 ## Next steps (not built yet)
 
