@@ -147,11 +147,36 @@ report from the previous round.
   never excluded.
 - Both Start/Sit and Free Agents pages display the single `status` column.
 
+## Step 5 — Breakout detector (built)
+
+The "Puka Nacua signal" -- built entirely from data already on hand, no
+external dynasty-value API needed for this first pass.
+
+- `engine/breakouts.py` — `find_breakout_candidates()` splits a week window
+  into early/recent halves, computes the change in WOPR (Weighted
+  Opportunity Rating -- nflverse's combined target-share + air-yards-share
+  metric) between them, and filters to players who are either undrafted,
+  Day 3 picks, or still within N years of being drafted (covers a good
+  Day 2 rookie/sophomore breaking out, not just deep-round afterthoughts).
+  Sorted by rising-opportunity-fastest.
+- `pages/5_Breakouts.py` — configurable week window, min games, and draft-
+  capital thresholds; WR/RB/TE only (WOPR is a receiving-opportunity
+  metric, not meaningful for IDP).
+- **Validated against real 2025 data**: Puka Nacua himself appears in the
+  candidate list (5th-round pick, rising WOPR) -- a solid sanity check
+  that the detector catches the exact pattern it's designed for.
+
+**Known limitation:** this flags a *changing role*, not a guaranteed
+future star, and doesn't yet cross-reference an actual dynasty market
+value (FantasyCalc/KeepTradeCut) to confirm the market hasn't already
+priced the change in -- that's a natural next enhancement once the trade
+finder (which needs that same value data) is built.
+
 ## Next steps (not built yet)
 
-- Breakout detector (the "Puka Nacua" signal -- efficiency/usage trending
-  up faster than draft capital/dynasty value)
-- Trade finder using dynasty value data (FantasyCalc/KTC)
+- Trade finder using dynasty value data (FantasyCalc/KTC) -- would also
+  let the breakout detector cross-reference against actual market value
+  instead of just draft capital
 - Scheduled data pulls (GitHub Action -> committed parquet/CSV) for
   slow-changing data: league settings, nflverse stats, dynasty values as an
   append-only time series
