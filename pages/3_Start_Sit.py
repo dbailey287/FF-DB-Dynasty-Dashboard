@@ -6,6 +6,7 @@ import streamlit as st
 from config import SLEEPER_USERNAME
 from ui import render_league_switcher
 from data.sleeper import get_league, get_my_roster, get_all_players
+from data.fantasycalc import get_dynasty_values, infer_fantasycalc_params
 from data.nflverse import (
     get_weekly_stats,
     get_player_id_map,
@@ -48,6 +49,11 @@ def load_league(league_id: str):
 @st.cache_data(ttl=3600)
 def load_my_roster(league_id: str, username: str):
     return get_my_roster(league_id, username)
+
+
+@st.cache_data(ttl=3600)
+def load_dynasty_values(num_qbs: int, num_teams: int, ppr: float):
+    return get_dynasty_values(num_qbs=num_qbs, num_teams=num_teams, ppr=ppr)
 
 
 league = load_league(league_cfg["league_id"])
@@ -119,6 +125,19 @@ with st.spinner("Pulling stats and scoring your roster..."):
 
     ranked = rank_roster(roster, player_lookup, player_weighted, defense_weighted, availability_lookup)
 
+    fc_params = infer_fantasycalc_params(league)
+    try:
+        dynasty_values = load_dynasty_values(fc_params["numQbs"], fc_params["numTeams"], fc_params["ppr"])
+        value_by_id = dynasty_values.set_index("sleeper_id")["dynasty_value"].to_dict()
+        ranked["dynasty_value"] = ranked["player_id"].map(value_by_id).fillna(0)
+    except Exception as e:
+        st.warning(
+            f"Couldn't load dynasty values from FantasyCalc ({e}) -- depth "
+            "chart will fall back to recency-weighted performance for "
+            "default ordering instead."
+        )
+        ranked["dynasty_value"] = 0
+
 if ranked.empty:
     st.warning("No players found on this roster.")
     st.stop()
@@ -140,22 +159,25 @@ with starters_tab:
 with depth_chart_tab:
     st.markdown("### Your roster, depth-ordered by position")
     st.caption(
-        "Ranked #1, #2, #3... within each position by recency-weighted "
-        "avg_points -- this is your team's real internal pecking order, "
-        "not Sleeper's own depth chart (which just reflects however you "
-        "last set your lineup, not who's actually producing)."
+        "Ranked #1, #2, #3... within each position by dynasty value "
+        "(FantasyCalc) by default. Click any column header to re-sort by "
+        "that column instead -- the #1/#2/#3 depth label always reflects "
+        "the dynasty-value order, even if you sort the table by something "
+        "else, so it stays a stable reference point."
     )
 
     depth_positions = sorted(ranked["position"].dropna().unique().tolist())
     for position in depth_positions:
         pos_group = ranked[ranked["position"] == position].sort_values(
-            "avg_points", ascending=False
+            "dynasty_value", ascending=False
         ).reset_index(drop=True)
         pos_group.insert(0, "depth", [f"{position}{i+1}" for i in range(len(pos_group))])
 
         st.markdown(f"**{position}**")
         st.dataframe(
-            pos_group[["depth", "name", "team", "avg_points", "games_sampled", "starter", "status"]],
+            pos_group[
+                ["depth", "name", "team", "dynasty_value", "avg_points", "games_sampled", "starter", "status"]
+            ],
             use_container_width=True,
             hide_index=True,
         )

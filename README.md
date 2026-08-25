@@ -306,10 +306,13 @@ can flip a read entirely, especially around an injury.
 ## Depth Chart tab (built)
 
 - `pages/3_Start_Sit.py` — added a **Depth Chart** tab: your own roster,
-  grouped by position and numbered #1/#2/#3... by recency-weighted
-  avg_points (your team's real internal pecking order based on
-  production, not Sleeper's own depth chart which just reflects however
-  you last set your lineup).
+  grouped by position and numbered #1/#2/#3... **by dynasty value
+  (FantasyCalc) by default** -- the same data source Trade Finder uses.
+  Every column is sortable by clicking its header (native to Streamlit's
+  dataframe grid, no extra code needed) -- the #1/#2/#3 depth label stays
+  fixed to the dynasty-value order even if you click to sort by
+  recency-weighted performance or something else instead, so it remains a
+  stable reference point rather than shuffling with every click.
 - `data/nflverse.py` — also added `get_depth_charts()` (real NFL team
   depth charts via ESPN's feed, through nflverse) and a position-group
   mapping (collapsing scheme-specific slots like MLB/WLB/SLB into LB) --
