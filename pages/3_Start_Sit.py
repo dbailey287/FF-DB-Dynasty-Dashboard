@@ -19,16 +19,18 @@ from data.nflverse import (
 from engine.scoring import compute_points, compute_team_defense_points
 from engine.rankings import (
     build_player_lookup,
-    compute_trailing_player_scores,
-    compute_trailing_defense_scores,
+    compute_recency_weighted_player_scores,
+    compute_recency_weighted_defense_scores,
     rank_roster,
 )
 
 st.set_page_config(page_title="Start/Sit", page_icon="🏈", layout="wide")
 st.title("🏈 Start/Sit")
 st.caption(
-    "Your roster, ranked by trailing average fantasy points under this "
-    "league's real scoring settings."
+    "Your roster, ranked by recency-weighted fantasy points under this "
+    "league's real scoring settings -- every game played this season "
+    "contributes, weighted toward recent form, with no fixed window to "
+    "accidentally miss."
 )
 
 league_cfg = render_league_switcher()
@@ -62,16 +64,33 @@ if roster is None:
 league_season = int(league.get("season", 2025))
 default_season = league_season - 1 if datetime.date.today().month < 9 else league_season
 
+# Capped at 18 (real end of regular season) -- the raw max week in the data
+# can reach into the low-20s for playoff weeks that only apply to a
+# handful of teams, which would badly skew recency decay for everyone else.
+try:
+    _default_season_weekly = get_weekly_stats(default_season)
+    default_as_of_week = min(int(_default_season_weekly["week"].max()), 18)
+except Exception:
+    default_as_of_week = 18
+
 col1, col2 = st.columns([1, 3])
 with col1:
     season = st.number_input(
         "Season", min_value=2015, max_value=league_season, value=default_season, step=1
     )
-    through_week = st.number_input("Through week", min_value=1, max_value=18, value=3, step=1)
-    trailing_n = st.number_input("Trailing weeks to average", min_value=1, max_value=10, value=3, step=1)
+    as_of_week = st.number_input(
+        "As of week", min_value=1, max_value=18, value=default_as_of_week, step=1
+    )
+    half_life_weeks = st.slider(
+        "Recency half-life (weeks)", min_value=1.0, max_value=8.0, value=3.0, step=0.5,
+        help="A game this many weeks back counts half as much as the most "
+             "recent one. Lower = more reactive to recent form.",
+    )
 
-weeks = list(range(max(1, through_week - trailing_n + 1), through_week + 1))
-st.caption(f"Averaging weeks {weeks[0]}–{weeks[-1]} of {season}")
+st.caption(
+    f"Weighting every game played through week {as_of_week} of {season}, "
+    f"with a {half_life_weeks}-week recency half-life."
+)
 
 with st.spinner("Pulling stats and scoring your roster..."):
     try:
@@ -88,17 +107,17 @@ with st.spinner("Pulling stats and scoring your roster..."):
     scored_defense, _ = compute_team_defense_points(team_defense, scoring_settings)
 
     injuries = get_injury_reports(season)
-    injury_lookup = get_latest_injury_status(injuries, id_map, through_week)
+    injury_lookup = get_latest_injury_status(injuries, id_map, as_of_week)
     roster_status = get_weekly_roster_status(season)
-    availability_lookup = get_availability_reasons(roster_status, injury_lookup, through_week)
+    availability_lookup = get_availability_reasons(roster_status, injury_lookup, as_of_week)
 
     all_players = get_all_players()
     player_lookup = build_player_lookup(all_players)
 
-    player_trailing = compute_trailing_player_scores(scored_weekly, weeks)
-    defense_trailing = compute_trailing_defense_scores(scored_defense, weeks)
+    player_weighted = compute_recency_weighted_player_scores(scored_weekly, as_of_week, half_life_weeks)
+    defense_weighted = compute_recency_weighted_defense_scores(scored_defense, as_of_week, half_life_weeks)
 
-    ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing, availability_lookup)
+    ranked = rank_roster(roster, player_lookup, player_weighted, defense_weighted, availability_lookup)
 
 if ranked.empty:
     st.warning("No players found on this roster.")
@@ -110,7 +129,7 @@ starters_tab, full_roster_tab = st.tabs(["Starting lineup", "Full roster"])
 
 with starters_tab:
     starters = ranked[ranked["starter"]].sort_values("avg_points", ascending=False)
-    st.markdown("### Current starters, ranked by trailing average")
+    st.markdown("### Current starters, ranked by recency-weighted average")
     st.dataframe(
         starters[
             ["name", "position", "team", "avg_points", "games_sampled", "status"]

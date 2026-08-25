@@ -20,8 +20,8 @@ from data.nflverse import (
 from engine.scoring import compute_points, compute_team_defense_points
 from engine.rankings import (
     build_player_lookup,
-    compute_trailing_player_scores,
-    compute_trailing_defense_scores,
+    compute_recency_weighted_player_scores,
+    compute_recency_weighted_defense_scores,
 )
 from engine.trades import (
     build_team_rosters_with_values,
@@ -35,9 +35,8 @@ st.set_page_config(page_title="Trade Finder", page_icon="🔄", layout="wide")
 st.title("🔄 Trade Finder")
 st.caption(
     "Dynasty trade value from FantasyCalc, matched against every team in "
-    "the league at once, with real starter-lineup impact -- not just "
-    "value math -- using the same trailing performance + injury/availability "
-    "data as Start/Sit and Free Agents."
+    "the league at once, with real starter-lineup impact using recency-"
+    "weighted performance + injury/availability data."
 )
 st.info(
     "This page pulls live from FantasyCalc's API. If it fails to load, "
@@ -82,16 +81,15 @@ fc_params = infer_fantasycalc_params(league)
 league_season = int(league.get("season", 2025))
 default_season = league_season - 1 if datetime.date.today().month < 9 else league_season
 
-# Default "through week" to the most recent week with real data, not a
-# fixed early-season week -- a hardcoded early default (e.g. week 3)
-# badly understates anyone whose role emerged later (rookies especially),
-# which is exactly what caused a bad recommendation last round.
+# Capped at 18 (real end of regular season) rather than the raw max week in
+# the data, which can reach into the low-20s for playoff weeks that only
+# apply to a handful of teams -- using that as the reference point would
+# badly skew recency decay for everyone else.
 try:
     _default_season_weekly = get_weekly_stats(default_season)
-    default_through_week = min(int(_default_season_weekly["week"].max()), 18)
+    default_as_of_week = min(int(_default_season_weekly["week"].max()), 18)
 except Exception:
-    default_through_week = 10
-default_trailing_n = min(5, default_through_week)
+    default_as_of_week = 18
 
 st.caption(
     f"FantasyCalc values for: {'Superflex' if fc_params['numQbs'] == 2 else '1QB'}, "
@@ -103,12 +101,15 @@ with col1:
     season = st.number_input(
         "Season", min_value=2015, max_value=league_season, value=default_season, step=1
     )
-    through_week = st.number_input(
-        "Through week", min_value=1, max_value=18, value=default_through_week, step=1
+    as_of_week = st.number_input(
+        "As of week", min_value=1, max_value=18, value=default_as_of_week, step=1
     )
 with col2:
-    trailing_n = st.number_input(
-        "Trailing weeks", min_value=1, max_value=10, value=default_trailing_n, step=1
+    half_life_weeks = st.slider(
+        "Recency half-life (weeks)", min_value=1.0, max_value=8.0, value=3.0, step=0.5,
+        help="How fast older games fade. A game this many weeks back counts "
+             "half as much as the most recent one. Lower = more reactive to "
+             "recent form; higher = smoother, weighs the whole season more.",
     )
     max_package_size = st.number_input("Max players/side", min_value=1, max_value=3, value=2, step=1)
 with col3:
@@ -116,7 +117,13 @@ with col3:
 with col4:
     favor_me_max_pct = st.slider("Max favor-me tilt (%)", min_value=10, max_value=60, value=35, step=5)
 
-weeks = list(range(max(1, through_week - trailing_n + 1), through_week + 1))
+st.caption(
+    "Uses every game a player has played this season, weighted by recency "
+    "(no fixed window to accidentally miss) -- a player who was great for "
+    "16 weeks then missed the last 2 still shows meaningfully strong, just "
+    "gently discounted, rather than vanishing or being judged on a too-thin "
+    "recent slice alone."
+)
 
 with st.spinner("Pulling values, rosters, and performance data..."):
     try:
@@ -143,17 +150,17 @@ with st.spinner("Pulling values, rosters, and performance data..."):
     scored_defense, _ = compute_team_defense_points(team_defense, league.get("scoring_settings", {}))
 
     injuries = get_injury_reports(season)
-    injury_lookup = get_latest_injury_status(injuries, id_map, through_week)
+    injury_lookup = get_latest_injury_status(injuries, id_map, as_of_week)
     roster_status = get_weekly_roster_status(season)
-    availability_lookup = get_availability_reasons(roster_status, injury_lookup, through_week)
+    availability_lookup = get_availability_reasons(roster_status, injury_lookup, as_of_week)
 
     all_players = get_all_players()
     player_lookup = build_player_lookup(all_players)
 
-    player_trailing = compute_trailing_player_scores(scored_weekly, weeks)
-    defense_trailing = compute_trailing_defense_scores(scored_defense, weeks)
+    player_weighted = compute_recency_weighted_player_scores(scored_weekly, as_of_week, half_life_weeks)
+    defense_weighted = compute_recency_weighted_defense_scores(scored_defense, as_of_week, half_life_weeks)
     performance = build_league_performance_table(
-        player_lookup, player_trailing, defense_trailing, availability_lookup
+        player_lookup, player_weighted, defense_weighted, availability_lookup
     )
 
     rosters, users = load_league_context(league_cfg["league_id"])
@@ -177,8 +184,7 @@ if unrecognized_flex_slots:
         f"{', '.join(unrecognized_flex_slots)}. That slot's capacity is NOT "
         f"being counted in starter_impact below, which likely undercounts "
         f"players who start via it -- please share this exact slot name so "
-        f"the mapping can be extended (same issue we ran into with scoring "
-        f"keys earlier)."
+        f"the mapping can be extended."
     )
 
 my_team = team_rosters[my_team_name]
@@ -270,9 +276,11 @@ st.caption(
     "of that exact position first (a TE slot can't be filled by an RB, no "
     "matter how deep your RB room is), then lets only the leftover players "
     "compete for shared FLEX/Superflex/IDP_FLEX slots -- so losing your only "
-    "good player at a scarce position (e.g. an elite TE) is never masked by "
-    "gaining depth at a different, FLEX-sharing position. This is still "
-    "pure value + performance math on top of that: it doesn't know a "
-    "manager's contend/rebuild timeline or whether they'd actually consider "
-    "the deal."
+    "good player at a scarce position is never masked by gaining depth at a "
+    "different, FLEX-sharing position. This is still pure value + "
+    "performance math on top of that: it doesn't know a manager's contend/"
+    "rebuild timeline, whether they'd actually consider the deal, or "
+    "long-term talent beyond recent performance -- a hot recent stretch "
+    "from a lesser-regarded player can outscore a slumping/injured star in "
+    "this metric even when dynasty consensus would strongly disagree."
 )

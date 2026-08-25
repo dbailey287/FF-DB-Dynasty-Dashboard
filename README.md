@@ -269,6 +269,40 @@ replaceable in isolation.
   nflverse's week numbering extends into playoffs up to ~22, which would
   have exceeded the widget's bounds and crashed).
 
+## Architecture change: recency-weighted scoring replaces fixed trailing windows
+
+Direct response to: "I don't love the trailing window logic... if you just
+happen to be on the wrong trailing window, you're going to miss stuff."
+Fair critique -- a hard window (through_week + trailing_n) has real
+cliffs: a player entirely outside the window vanishes (0 games, looks
+like a data gap or a real zero), and shifting the boundary by one week
+can flip a read entirely, especially around an injury.
+
+- `engine/rankings.py` — added `compute_recency_weighted_player_scores()`
+  and `compute_recency_weighted_defense_scores()`: use EVERY game a player
+  played this season (through a chosen "as of week"), weighted by
+  `0.5 ** (weeks_ago / half_life_weeks)` -- smooth decay, no hard cutoff.
+  Same output columns (`sleeper_id`, `avg_points`, `games`) as the old
+  `compute_trailing_*_scores()`, so it's a drop-in replacement everywhere
+  those were used. The old fixed-window functions are kept (not removed)
+  for any caller that specifically wants one, with a docstring note
+  pointing to the new approach instead.
+- `pages/3_Start_Sit.py`, `pages/4_Free_Agents.py`, `pages/6_Trade_Finder.py`
+  — replaced "Through week" + "Trailing weeks" number inputs with
+  "As of week" + a "Recency half-life (weeks)" slider on all three pages
+  for consistency, since the same fragility affected all of them equally.
+- Validated against the exact Bowers case: with the old hard window,
+  Bowers had literally zero rows in some slices (he missed the final 2
+  games of the regular season) and would vanish from consideration
+  entirely. With recency weighting, he always has a real number
+  reflecting his whole season (12 games, appropriately discounted for the
+  recent absence) -- no more silent disappearance. Separately confirmed
+  this isn't just a re-hidden bug: even fully weighted across the whole
+  season, Trey McBride's real 2025 production edges out Bowers' under a
+  simple PPR scoring test, which is a legitimate signal, not an artifact
+  -- performance-based ranking and dynasty consensus are different
+  questions and can genuinely disagree.
+
 ## Next steps (not built yet)
 
 - Scheduled data pulls (GitHub Action -> committed parquet/CSV) for

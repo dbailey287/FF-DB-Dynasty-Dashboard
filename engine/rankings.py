@@ -33,12 +33,77 @@ def build_player_lookup(all_players: dict) -> dict:
     return lookup
 
 
+def compute_recency_weighted_player_scores(
+    scored_weekly: pd.DataFrame, as_of_week: int, half_life_weeks: float = 3.0
+) -> pd.DataFrame:
+    """
+    Recency-weighted average league_points per sleeper_id, using EVERY game
+    the player has played this season (not a fixed window) -- each game's
+    weight decays smoothly the further back it is from as_of_week, via
+    weight = 0.5 ** (weeks_ago / half_life_weeks). A game half_life_weeks
+    ago counts for half as much as the most recent one; twice that far
+    back, a quarter; and so on. There's no hard cutoff, so there's no
+    "wrong window" to accidentally pick -- a player who was excellent for
+    16 weeks then missed the last 2 still shows meaningfully strong,
+    gently discounted, rather than either vanishing entirely (outside a
+    fixed window) or being judged on a too-small recent slice alone.
+
+    Only games at or before as_of_week count (future games never leak in).
+    Returns columns: sleeper_id, avg_points, games (matching the shape the
+    rest of engine.rankings/engine.trades expects, so this is a drop-in
+    replacement for compute_trailing_player_scores wherever it's used).
+    """
+    subset = scored_weekly[
+        (scored_weekly["week"] <= as_of_week) & scored_weekly["sleeper_id"].notna()
+    ].copy()
+    if subset.empty:
+        return pd.DataFrame(columns=["sleeper_id", "avg_points", "games"])
+
+    subset["_weight"] = 0.5 ** ((as_of_week - subset["week"]) / half_life_weeks)
+    subset["_weighted_points"] = subset["_weight"] * subset["league_points"]
+
+    grouped = subset.groupby("sleeper_id").agg(
+        _weight_sum=("_weight", "sum"),
+        _weighted_points_sum=("_weighted_points", "sum"),
+        games=("week", "count"),
+    )
+    grouped["avg_points"] = grouped["_weighted_points_sum"] / grouped["_weight_sum"]
+    return grouped[["avg_points", "games"]].reset_index()
+
+
+def compute_recency_weighted_defense_scores(
+    scored_defense: pd.DataFrame, as_of_week: int, half_life_weeks: float = 3.0
+) -> pd.DataFrame:
+    """Same recency-weighted approach for team DEF/D-ST, keyed by team abbreviation."""
+    subset = scored_defense[scored_defense["week"] <= as_of_week].copy()
+    if subset.empty:
+        return pd.DataFrame(columns=["sleeper_id", "avg_points", "games"])
+
+    subset["_weight"] = 0.5 ** ((as_of_week - subset["week"]) / half_life_weeks)
+    subset["_weighted_points"] = subset["_weight"] * subset["league_points"]
+
+    grouped = subset.groupby("team").agg(
+        _weight_sum=("_weight", "sum"),
+        _weighted_points_sum=("_weighted_points", "sum"),
+        games=("week", "count"),
+    )
+    grouped["avg_points"] = grouped["_weighted_points_sum"] / grouped["_weight_sum"]
+    return grouped[["avg_points", "games"]].reset_index().rename(columns={"team": "sleeper_id"})
+
+
 def compute_trailing_player_scores(
     scored_weekly: pd.DataFrame, weeks: list[int]
 ) -> pd.DataFrame:
     """
     Average league_points per sleeper_id over the given weeks (individual
     offense + IDP players). Returns columns: sleeper_id, avg_points, games.
+
+    NOTE: this hard-window approach is sensitive to exactly which weeks you
+    pick -- a player who missed a game just outside (or barely inside) the
+    window can look very different depending on the boundary. Prefer
+    compute_recency_weighted_player_scores for anything comparing players'
+    current form, since it has no such cliff. Kept here for callers that
+    specifically want a fixed-window average.
     """
     subset = scored_weekly[
         scored_weekly["week"].isin(weeks) & scored_weekly["sleeper_id"].notna()

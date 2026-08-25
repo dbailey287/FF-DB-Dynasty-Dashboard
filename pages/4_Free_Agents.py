@@ -19,8 +19,8 @@ from data.nflverse import (
 from engine.scoring import compute_points, compute_team_defense_points
 from engine.rankings import (
     build_player_lookup,
-    compute_trailing_player_scores,
-    compute_trailing_defense_scores,
+    compute_recency_weighted_player_scores,
+    compute_recency_weighted_defense_scores,
     rank_roster,
     rank_free_agents,
     find_upgrades,
@@ -29,7 +29,7 @@ from engine.rankings import (
 st.set_page_config(page_title="Free Agents", page_icon="🔍", layout="wide")
 st.title("🔍 Free Agents")
 st.caption(
-    "Everyone available in this league, ranked by the same trailing-average "
+    "Everyone available in this league, ranked by the same recency-weighted "
     "scoring as Start/Sit, with upgrades over your weakest rostered players "
     "flagged automatically."
 )
@@ -70,19 +70,34 @@ if roster is None:
 league_season = int(league.get("season", 2025))
 default_season = league_season - 1 if datetime.date.today().month < 9 else league_season
 
+try:
+    _default_season_weekly = get_weekly_stats(default_season)
+    default_as_of_week = min(int(_default_season_weekly["week"].max()), 18)
+except Exception:
+    default_as_of_week = 18
+
 col1, col2 = st.columns([1, 3])
 with col1:
     season = st.number_input(
         "Season", min_value=2015, max_value=league_season, value=default_season, step=1
     )
-    through_week = st.number_input("Through week", min_value=1, max_value=18, value=3, step=1)
-    trailing_n = st.number_input("Trailing weeks to average", min_value=1, max_value=10, value=3, step=1)
+    as_of_week = st.number_input(
+        "As of week", min_value=1, max_value=18, value=default_as_of_week, step=1
+    )
+    half_life_weeks = st.slider(
+        "Recency half-life (weeks)", min_value=1.0, max_value=8.0, value=3.0, step=0.5,
+        help="A game this many weeks back counts half as much as the most "
+             "recent one. Lower = more reactive to recent form.",
+    )
     min_games = st.number_input(
         "Min games played (filters small samples)", min_value=1, max_value=10, value=2, step=1
     )
 
-weeks = list(range(max(1, through_week - trailing_n + 1), through_week + 1))
-st.caption(f"Averaging weeks {weeks[0]}–{weeks[-1]} of {season}")
+st.caption(
+    f"Weighting every game played through week {as_of_week} of {season}, "
+    f"with a {half_life_weeks}-week recency half-life -- no fixed window "
+    "to accidentally miss a player's real recent form."
+)
 
 with st.spinner("Pulling stats and scoring free agents..."):
     try:
@@ -99,20 +114,20 @@ with st.spinner("Pulling stats and scoring free agents..."):
     scored_defense, _ = compute_team_defense_points(team_defense, scoring_settings)
 
     injuries = get_injury_reports(season)
-    injury_lookup = get_latest_injury_status(injuries, id_map, through_week)
+    injury_lookup = get_latest_injury_status(injuries, id_map, as_of_week)
     roster_status = get_weekly_roster_status(season)
-    availability_lookup = get_availability_reasons(roster_status, injury_lookup, through_week)
+    availability_lookup = get_availability_reasons(roster_status, injury_lookup, as_of_week)
 
     all_players = get_all_players()
     player_lookup = build_player_lookup(all_players)
     free_agents = load_free_agents(league_cfg["league_id"], all_players)
 
-    player_trailing = compute_trailing_player_scores(scored_weekly, weeks)
-    defense_trailing = compute_trailing_defense_scores(scored_defense, weeks)
+    player_weighted = compute_recency_weighted_player_scores(scored_weekly, as_of_week, half_life_weeks)
+    defense_weighted = compute_recency_weighted_defense_scores(scored_defense, as_of_week, half_life_weeks)
 
-    my_roster_ranked = rank_roster(roster, player_lookup, player_trailing, defense_trailing, availability_lookup)
+    my_roster_ranked = rank_roster(roster, player_lookup, player_weighted, defense_weighted, availability_lookup)
     fa_ranked = rank_free_agents(
-        free_agents, player_lookup, player_trailing, defense_trailing, min_games, availability_lookup
+        free_agents, player_lookup, player_weighted, defense_weighted, min_games, availability_lookup
     )
     upgrades, skipped_positions = find_upgrades(my_roster_ranked, fa_ranked, min_games)
 
@@ -133,7 +148,7 @@ with upgrades_tab:
     if upgrades.empty:
         st.info(
             "No free agent currently beats your worst *eligible* rostered player "
-            "at any position in this window -- try a different trailing window, "
+            "at any position right now -- try a shorter recency half-life, "
             "or your bench depth may just be solid right now."
         )
     else:
