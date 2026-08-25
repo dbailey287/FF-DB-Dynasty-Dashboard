@@ -125,7 +125,7 @@ if ranked.empty:
 
 st.divider()
 
-starters_tab, full_roster_tab = st.tabs(["Starting lineup", "Full roster"])
+starters_tab, depth_chart_tab, full_roster_tab = st.tabs(["Starting lineup", "Depth Chart", "Full roster"])
 
 with starters_tab:
     starters = ranked[ranked["starter"]].sort_values("avg_points", ascending=False)
@@ -136,6 +136,29 @@ with starters_tab:
         ].reset_index(drop=True),
         use_container_width=True,
     )
+
+with depth_chart_tab:
+    st.markdown("### Your roster, depth-ordered by position")
+    st.caption(
+        "Ranked #1, #2, #3... within each position by recency-weighted "
+        "avg_points -- this is your team's real internal pecking order, "
+        "not Sleeper's own depth chart (which just reflects however you "
+        "last set your lineup, not who's actually producing)."
+    )
+
+    depth_positions = sorted(ranked["position"].dropna().unique().tolist())
+    for position in depth_positions:
+        pos_group = ranked[ranked["position"] == position].sort_values(
+            "avg_points", ascending=False
+        ).reset_index(drop=True)
+        pos_group.insert(0, "depth", [f"{position}{i+1}" for i in range(len(pos_group))])
+
+        st.markdown(f"**{position}**")
+        st.dataframe(
+            pos_group[["depth", "name", "team", "avg_points", "games_sampled", "starter", "status"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
 with full_roster_tab:
     positions = sorted(ranked["position"].dropna().unique().tolist())

@@ -303,6 +303,21 @@ can flip a read entirely, especially around an injury.
   -- performance-based ranking and dynasty consensus are different
   questions and can genuinely disagree.
 
+## Depth Chart tab (built)
+
+- `pages/3_Start_Sit.py` — added a **Depth Chart** tab: your own roster,
+  grouped by position and numbered #1/#2/#3... by recency-weighted
+  avg_points (your team's real internal pecking order based on
+  production, not Sleeper's own depth chart which just reflects however
+  you last set your lineup).
+- `data/nflverse.py` — also added `get_depth_charts()` (real NFL team
+  depth charts via ESPN's feed, through nflverse) and a position-group
+  mapping (collapsing scheme-specific slots like MLB/WLB/SLB into LB) --
+  built while clarifying the request, not currently surfaced in any page
+  since the actual ask was for your fantasy roster, not NFL teams'. Left
+  in place, tested, and ready if useful later (e.g. checking a free
+  agent's or handcuff's real NFL depth chart standing).
+
 ## Next steps (not built yet)
 
 - Scheduled data pulls (GitHub Action -> committed parquet/CSV) for

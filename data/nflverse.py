@@ -260,3 +260,68 @@ def get_availability_reasons(
             reasons[pid] = ""  # ACT with no injury report -- healthy, just not playing
 
     return reasons
+
+
+# Maps nflverse's granular per-scheme position abbreviations (e.g. "MLB",
+# "LCB", "RDE") to the fantasy-relevant position groups used everywhere
+# else in this app. Offensive skill positions (QB/RB/WR/TE) already match
+# directly and don't need mapping.
+DEPTH_CHART_POSITION_MAP = {
+    "MLB": "LB", "SLB": "LB", "WLB": "LB", "LB": "LB", "ILB": "LB", "OLB": "LB",
+    "FS": "DB", "SS": "DB", "LCB": "DB", "RCB": "DB", "CB": "DB", "NB": "DB", "S": "DB",
+    "LDE": "DL", "RDE": "DL", "LDT": "DL", "RDT": "DL", "DE": "DL", "DT": "DL", "NT": "DL",
+}
+
+
+def get_depth_charts(season: int, force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Latest available depth chart snapshot (ESPN's own depth charts, via
+    nflverse) for every NFL team, filtered to fantasy-relevant positions
+    and mapped to fantasy position groups (QB/RB/WR/TE stay as-is;
+    granular scheme positions like MLB/LCB/RDE collapse to LB/DB/DL).
+    Attaches sleeper_id via the ID crosswalk. pos_rank is the team's own
+    depth order (1 = starter).
+
+    NOTE: this is ESPN's editorial depth chart, refreshed periodically --
+    not official team-released depth charts, and can occasionally lag
+    real personnel moves (especially just after a trade/signing/injury).
+    Treat it as a strong directional signal, not gospel.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = f"{CACHE_DIR}/depth_charts_{season}.parquet"
+
+    if not force_refresh and os.path.exists(cache_path):
+        return pd.read_parquet(cache_path)
+
+    dc = nfl.load_depth_charts(seasons=[season]).to_pandas()
+    latest_dt = dc["dt"].max()
+    latest = dc[dc["dt"] == latest_dt].copy()
+
+    relevant_raw_positions = {"QB", "RB", "WR", "TE"} | set(DEPTH_CHART_POSITION_MAP.keys())
+    latest = latest[latest["pos_abb"].isin(relevant_raw_positions)].copy()
+    latest["fantasy_position"] = latest["pos_abb"].map(
+        lambda p: DEPTH_CHART_POSITION_MAP.get(p, p)
+    )
+
+    id_map = get_player_id_map()
+    slim_map = id_map[["gsis_id", "sleeper_id"]].dropna(subset=["gsis_id"]).copy()
+    slim_map["sleeper_id"] = slim_map["sleeper_id"].apply(
+        lambda x: str(int(x)) if pd.notna(x) else None
+    )
+    latest = latest.merge(slim_map, on="gsis_id", how="left")
+
+    # Collapsing scheme-specific slots (e.g. MLB/WLB/SLB -> LB) means the
+    # raw pos_rank (scoped to the exact scheme slot) can repeat within the
+    # merged group -- e.g. a WLB1 and an SLB1 would both show "rank 1"
+    # under plain "LB". Re-rank sequentially within each team+fantasy
+    # position group instead, ordered by the original pos_rank so true
+    # starters still come first.
+    latest = latest.sort_values(["team", "fantasy_position", "pos_rank"])
+    latest["depth_rank"] = latest.groupby(["team", "fantasy_position"]).cumcount() + 1
+
+    result = latest[
+        ["team", "player_name", "pos_abb", "fantasy_position", "depth_rank", "sleeper_id", "dt"]
+    ].sort_values(["team", "fantasy_position", "depth_rank"])
+
+    result.to_parquet(cache_path, index=False)
+    return result
